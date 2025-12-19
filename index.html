@@ -152,9 +152,9 @@
         // 2. SYSTEM CONFIG Vandiep
         // ==========================================
         const CONFIG = {
-            goldCount: 2000,
-            redCount: 300,
-            giftCount: 150,
+            goldCount: 4000, // Tăng từ 2000 lên 4000 để tạo cảm giác đặc hơn
+            redCount: 600,   // Tăng từ 300 lên 600
+            giftCount: 300,  // Tăng từ 150 lên 300
             explodeRadius: 65,  
             photoOrbitRadius: 25,
             treeHeight: 70,
@@ -267,9 +267,14 @@
             }
             geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
             
+            // Lưu vị trí trước đó cho trail effect
+            const prevPositions = new Float32Array(pPositions);
+            
             geo.userData = { 
                 tree: pTreeTargets, explode: pExplodeTargets, heart: pHeartTargets, 
-                phases: phases, baseColor: baseColor, baseSize: size
+                phases: phases, baseColor: baseColor, baseSize: size,
+                prevPositions: prevPositions, // Lưu vị trí trước đó cho trail
+                velocities: new Float32Array(count * 3).fill(0) // Vận tốc cho flow field
             };
 
             const mat = new THREE.PointsMaterial({
@@ -452,6 +457,35 @@
             magicDustTrail.geometry.attributes.position.needsUpdate = true;
         }
 
+        // Tính toán Curl Noise để tạo flow field uốn lượn
+        function curlNoise(x, y, z, time) {
+            const scale = 0.1; // Độ lớn của noise
+            const speed = 0.3; // Tốc độ thay đổi theo thời gian
+            
+            // Sử dụng nhiều lớp noise để tạo độ phức tạp
+            const n1 = Math.sin(x * scale + time * speed) * Math.cos(y * scale * 1.3 + time * speed * 0.7);
+            const n2 = Math.cos(z * scale * 1.1 + time * speed * 0.9) * Math.sin(y * scale);
+            const n3 = Math.sin(x * scale * 0.8 + z * scale * 1.2 + time * speed * 0.5);
+            
+            // Tính curl (rotational) của vector field
+            const curlX = n2 - n3;
+            const curlY = n3 - n1;
+            const curlZ = n1 - n2;
+            
+            // Chuẩn hóa và scale
+            const length = Math.sqrt(curlX * curlX + curlY * curlY + curlZ * curlZ);
+            const strength = 2.5; // Độ mạnh của flow field
+            
+            if (length > 0.001) {
+                return {
+                    x: (curlX / length) * strength,
+                    y: (curlY / length) * strength,
+                    z: (curlZ / length) * strength
+                };
+            }
+            return { x: 0, y: 0, z: 0 };
+        }
+
         function updateParticleGroup(group, type, targetState, speed, handRotY, time) {
             const positions = group.geometry.attributes.position.array;
             const sizes = group.geometry.attributes.size.array;
@@ -462,33 +496,81 @@
             
             const targetKey = (targetState === 'TREE') ? 'tree' : (targetState === 'HEART' ? 'heart' : 'explode');
             const targets = group.geometry.userData[(targetState === 'PHOTO') ? 'explode' : targetKey];
-
-            // 1. Vandiep
-            for(let i=0; i<positions.length; i++) {
-                positions[i] += (targets[i] - positions[i]) * speed;
-            }
-            group.geometry.attributes.position.needsUpdate = true;
-            
-            // 2. COLOR & SIZE Vandiep
+            const prevPositions = group.geometry.userData.prevPositions;
+            const velocities = group.geometry.userData.velocities;
             const count = positions.length / 3;
-            
+
             if (targetState === 'TREE') {
                 group.rotation.y += 0.003;
                 
+                // Áp dụng Flow Field với Curl Noise cho chuyển động uốn lượn
                 for(let i=0; i<count; i++) {
-                    sizes[i] = baseSize;
-                    let brightness = 1.0;
+                    const idx = i * 3;
+                    const x = positions[idx];
+                    const y = positions[idx + 1];
+                    const z = positions[idx + 2];
+                    
+                    // Tính toán flow field tại vị trí hiện tại
+                    const flow = curlNoise(x, y, z, time);
+                    
+                    // Tính toán hướng về target position
+                    const targetX = targets[idx];
+                    const targetY = targets[idx + 1];
+                    const targetZ = targets[idx + 2];
+                    
+                    const toTargetX = targetX - x;
+                    const toTargetY = targetY - y;
+                    const toTargetZ = targetZ - z;
+                    
+                    // Kết hợp flow field với hướng về target
+                    const flowStrength = 0.4; // Độ mạnh của flow field (0-1)
+                    const targetStrength = 1 - flowStrength;
+                    
+                    // Cập nhật vận tốc với damping
+                    velocities[idx] = velocities[idx] * 0.85 + (toTargetX * targetStrength + flow.x * flowStrength) * speed;
+                    velocities[idx + 1] = velocities[idx + 1] * 0.85 + (toTargetY * targetStrength + flow.y * flowStrength) * speed;
+                    velocities[idx + 2] = velocities[idx + 2] * 0.85 + (toTargetZ * targetStrength + flow.z * flowStrength) * speed;
+                    
+                    // Lưu vị trí trước đó cho trail effect
+                    prevPositions[idx] = positions[idx];
+                    prevPositions[idx + 1] = positions[idx + 1];
+                    prevPositions[idx + 2] = positions[idx + 2];
+                    
+                    // Cập nhật vị trí
+                    positions[idx] += velocities[idx];
+                    positions[idx + 1] += velocities[idx + 1];
+                    positions[idx + 2] += velocities[idx + 2];
+                }
+                
+                // Tính toán trail effect dựa trên tốc độ di chuyển
+                for(let i=0; i<count; i++) {
+                    const idx = i * 3;
+                    
+                    // Tính tốc độ di chuyển
+                    const dx = positions[idx] - prevPositions[idx];
+                    const dy = positions[idx + 1] - prevPositions[idx + 1];
+                    const dz = positions[idx + 2] - prevPositions[idx + 2];
+                    const speed = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                    
+                    // Trail effect: opacity tăng khi di chuyển nhanh
+                    const trailOpacity = Math.min(1.0, 0.6 + speed * 2);
+                    
+                    let brightness = trailOpacity;
                     if(type === 'red') {
-                        // RED
-                        brightness = 0.5 + 0.5 * Math.sin(time * 3 + phases[i]);
+                        brightness = (0.5 + 0.5 * Math.sin(time * 3 + phases[i])) * trailOpacity;
                     } else if(type === 'gold') {
-                        // YELLOW
-                        brightness = 0.8 + 0.4 * Math.sin(time * 10 + phases[i]);
+                        brightness = (0.8 + 0.4 * Math.sin(time * 10 + phases[i])) * trailOpacity;
                     }
+                    
                     colors[i*3]   = baseColor.r * brightness;
                     colors[i*3+1] = baseColor.g * brightness;
                     colors[i*3+2] = baseColor.b * brightness;
+                    
+                    // Size cũng thay đổi nhẹ theo tốc độ để tạo hiệu ứng trail
+                    sizes[i] = baseSize * (0.8 + speed * 0.4);
                 }
+                
+                group.geometry.attributes.position.needsUpdate = true;
                 group.geometry.attributes.color.needsUpdate = true;
                 group.geometry.attributes.size.needsUpdate = true;
 
@@ -507,6 +589,13 @@
                 group.geometry.attributes.size.needsUpdate = true;
 
             } else {
+                // EXPLODE hoặc các state khác - giữ logic cũ
+                // 1. Cập nhật vị trí về target
+                for(let i=0; i<positions.length; i++) {
+                    positions[i] += (targets[i] - positions[i]) * speed;
+                }
+                group.geometry.attributes.position.needsUpdate = true;
+                
                 // EXPLODE
                 group.scale.set(1,1,1);
                 // Chỉ cập nhật góc xoay khi có tay trong khung hình
