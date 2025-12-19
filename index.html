@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Magic Christmas - Final Music Edition</title>
+    <title>Magic Christmas - Final 12 Photos</title>
     <style>
         body {
             margin: 0;
@@ -199,12 +199,20 @@
         import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
         // --- 1. CONFIG ---
+        // Đã cập nhật đủ 12 ảnh theo tên file trong folder của bạn
         const PHOTO_FILES = [
             './images/image1.jpeg',
             './images/image2.jpeg',
             './images/image3.jpeg',
             './images/image4.jpeg',
-            './images/image5.jpeg'
+            './images/image5.jpeg',
+            './images/image6.jpeg',
+            './images/image7.jpeg',
+            './images/image8.jpeg',
+            './images/image9.jpeg',
+            './images/image10.jpeg',
+            './images/image11.jpeg',
+            './images/image12.jpeg'
         ];
 
         const CONFIG = {
@@ -243,24 +251,16 @@
             setupPostProcessing();
             setupEvents();
 
-            // Khởi tạo MediaPipe nhưng chưa chạy loop ngay
             await initMediaPipe();
 
-            // Load xong -> Ẩn spinner, hiện nút Start
             document.getElementById('loading-group').style.display = 'none';
             const btn = document.getElementById('btn-enter');
             btn.style.display = 'block';
 
-            // Sự kiện bấm nút để vào
             btn.addEventListener('click', () => {
-                // 1. Phát nhạc (Trình duyệt cho phép vì đã có click)
                 bgMusic.play().catch(e => console.log("Audio Error:", e));
-
-                // 2. Ẩn màn hình chờ
                 document.getElementById('overlay-screen').style.opacity = 0;
                 setTimeout(() => document.getElementById('overlay-screen').remove(), 1000);
-
-                // 3. Bắt đầu vòng lặp
                 animate();
             });
         }
