@@ -194,15 +194,34 @@
             return new THREE.CanvasTexture(canvas);
         }
 
+        // Tạo texture sọc trắng đỏ cho Candy Cane
+        function createCandyCaneTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            const stripeHeight = 16;
+            for (let i = 0; i < canvas.height / stripeHeight; i++) {
+                ctx.fillStyle = (i % 2 === 0) ? '#FFFFFF' : '#FF0000';
+                ctx.fillRect(0, i * stripeHeight, canvas.width, stripeHeight);
+            }
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(1, 2);
+            return texture;
+        }
+
         const magicDustTexture = createSoftCircleTexture();
+        const candyCaneTexture = createCandyCaneTexture();
 
         // ==========================================
         // 2. SYSTEM CONFIG Vandiep
         // ==========================================
         const CONFIG = {
-            goldCount: 4000, // Tăng từ 2000 lên 4000 để tạo cảm giác đặc hơn
-            redCount: 600,   // Tăng từ 300 lên 600
-            giftCount: 300,  // Tăng từ 150 lên 300
+            totalParticles: 800, // Giảm số lượng vì mesh 3D nặng hơn points
             explodeRadius: 65,
             photoOrbitRadius: 25,
             treeHeight: 70,
@@ -210,9 +229,10 @@
         };
 
         let scene, camera, renderer;
-        let groupGold, groupRed, groupGift;
+        let particleGroup; // Group chứa tất cả mesh particles
+        let meshParticles = []; // Array chứa thông tin của từng particle
         let photoMeshes = [];
-        let titleMesh, starMesh, loveMesh;
+        let titleMesh, starMesh, loveMesh, topStar3D;
         let magicDustTrail = null; // Hệ thống bụi tiên bay xoắn ốc
 
         let state = 'TREE';
@@ -235,16 +255,198 @@
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.physicallyCorrectLights = true;
             container.appendChild(renderer.domElement);
 
-            groupGold = createParticleSystem('gold', CONFIG.goldCount, 2.0);
-            groupRed = createParticleSystem('red', CONFIG.redCount, 3.5);
-            groupGift = createParticleSystem('gift', CONFIG.giftCount, 3.0);
+            // === THÊM HỆ THỐNG ÁNH SÁNG ===
+            // Ambient Light - ánh sáng môi trường
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
 
+            // Point Light - ánh sáng điểm từ ngôi sao đỉnh
+            const pointLight = new THREE.PointLight(0xFFD700, 2.0, 150);
+            pointLight.position.set(0, CONFIG.treeHeight / 2 + 10, 0);
+            scene.add(pointLight);
+
+            // Point Light phụ - ánh sáng đỏ ấm
+            const redPointLight = new THREE.PointLight(0xFF6600, 1.0, 100);
+            redPointLight.position.set(20, 0, 30);
+            scene.add(redPointLight);
+
+            // Spot Light - đèn chiếu từ trên xuống
+            const spotLight = new THREE.SpotLight(0xFFFFFF, 1.5);
+            spotLight.position.set(0, 100, 50);
+            spotLight.angle = Math.PI / 4;
+            spotLight.penumbra = 0.3;
+            spotLight.decay = 1;
+            spotLight.distance = 200;
+            spotLight.target.position.set(0, 0, 0);
+            scene.add(spotLight);
+            scene.add(spotLight.target);
+
+            // Thêm directional light để có bóng đẹp hơn
+            const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.5);
+            directionalLight.position.set(-30, 50, 30);
+            scene.add(directionalLight);
+
+            // === TẠO PARTICLES VÀ TRANG TRÍ ===
+            createParticles();
+            createTopStar();
             createPhotos();
-            createMagicDustTrail(); // Tạo hệ thống bụi tiên
+            createMagicDustTrail();
             createDecorations();
             animate();
+        }
+
+        // === TẠO NGÔI SAO ĐỈNH 3D ===
+        function createTopStar() {
+            const starGeometry = new THREE.OctahedronGeometry(5, 0);
+            const starMaterial = new THREE.MeshStandardMaterial({
+                color: 0xFFD700,
+                emissive: 0xFFD700,
+                emissiveIntensity: 1.5,
+                metalness: 1.0,
+                roughness: 0.2
+            });
+            topStar3D = new THREE.Mesh(starGeometry, starMaterial);
+            topStar3D.position.set(0, CONFIG.treeHeight / 2 + 3, 0);
+            topStar3D.scale.set(1, 1.5, 1); // Kéo dài theo chiều dọc
+            scene.add(topStar3D);
+        }
+
+        // === TẠO HỆ THỐNG PARTICLES 3D MỚI ===
+        function createParticles() {
+            particleGroup = new THREE.Group();
+            scene.add(particleGroup);
+            meshParticles = [];
+
+            const count = CONFIG.totalParticles;
+
+            // Định nghĩa geometry và materials cho từng loại
+            const boxGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+            const sphereGeo = new THREE.SphereGeometry(0.8, 12, 8);
+
+            // Materials
+            const greenBoxMat = new THREE.MeshStandardMaterial({
+                color: 0x1B5E20,
+                roughness: 0.8,
+                metalness: 0.1
+            });
+
+            const goldBoxMat = new THREE.MeshStandardMaterial({
+                color: 0xFFD700,
+                roughness: 0.3,
+                metalness: 0.9
+            });
+
+            const goldSphereMat = new THREE.MeshStandardMaterial({
+                color: 0xFFD700,
+                roughness: 0.2,
+                metalness: 0.95
+            });
+
+            const redSphereMat = new THREE.MeshPhysicalMaterial({
+                color: 0xCC0000,
+                roughness: 0.1,
+                metalness: 0.5,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.1
+            });
+
+            const candyCaneMat = new THREE.MeshStandardMaterial({
+                map: candyCaneTexture,
+                roughness: 0.4,
+                metalness: 0.1
+            });
+
+            for (let i = 0; i < count; i++) {
+                const rand = Math.random();
+                let mesh, type;
+
+                // Phân bổ theo tỷ lệ: 40% Green Box, 30% Gold Box, 22% Gold Sphere, 5% Red Sphere, 3% Candy Cane
+                if (rand < 0.40) {
+                    type = 'greenBox';
+                    mesh = new THREE.Mesh(boxGeo, greenBoxMat);
+                    mesh.scale.setScalar(0.8 + Math.random() * 0.4);
+                } else if (rand < 0.70) {
+                    type = 'goldBox';
+                    mesh = new THREE.Mesh(boxGeo, goldBoxMat);
+                    mesh.scale.setScalar(0.6 + Math.random() * 0.3);
+                } else if (rand < 0.92) {
+                    type = 'goldSphere';
+                    mesh = new THREE.Mesh(sphereGeo, goldSphereMat);
+                    mesh.scale.setScalar(0.7 + Math.random() * 0.4);
+                } else if (rand < 0.97) {
+                    type = 'redSphere';
+                    mesh = new THREE.Mesh(sphereGeo, redSphereMat);
+                    mesh.scale.setScalar(0.9 + Math.random() * 0.3);
+                } else {
+                    type = 'candyCane';
+                    // Tạo TubeGeometry uốn cong cho candy cane
+                    const curve = new THREE.CatmullRomCurve3([
+                        new THREE.Vector3(0, 0, 0),
+                        new THREE.Vector3(0, 1.5, 0),
+                        new THREE.Vector3(0.3, 2.2, 0),
+                        new THREE.Vector3(0.8, 2.5, 0)
+                    ]);
+                    const tubeGeo = new THREE.TubeGeometry(curve, 12, 0.15, 8, false);
+                    mesh = new THREE.Mesh(tubeGeo, candyCaneMat);
+                    mesh.scale.setScalar(1.5 + Math.random() * 0.5);
+                }
+
+                // --- TÍNH TOÁN VỊ TRÍ TREE ---
+                const h = Math.random() * CONFIG.treeHeight;
+                const y = h - CONFIG.treeHeight / 2;
+                const radiusRatio = type === 'greenBox' ? Math.sqrt(Math.random()) : 0.85 + Math.random() * 0.15;
+                const maxR = (1 - (h / CONFIG.treeHeight)) * CONFIG.treeBaseRadius;
+                const r = maxR * radiusRatio;
+                const theta = Math.random() * Math.PI * 2;
+                const treePos = new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta));
+
+                // --- TÍNH TOÁN VỊ TRÍ EXPLODE ---
+                const u = Math.random();
+                const v = Math.random();
+                const phi = Math.acos(2 * v - 1);
+                const lam = 2 * Math.PI * u;
+                const rad = CONFIG.explodeRadius * Math.cbrt(Math.random());
+                const explodePos = new THREE.Vector3(
+                    rad * Math.sin(phi) * Math.cos(lam),
+                    rad * Math.sin(phi) * Math.sin(lam),
+                    rad * Math.cos(phi)
+                );
+
+                // --- TÍNH TOÁN VỊ TRÍ HEART ---
+                const tHeart = Math.random() * Math.PI * 2;
+                let hx = 16 * Math.pow(Math.sin(tHeart), 3);
+                let hy = 13 * Math.cos(tHeart) - 5 * Math.cos(2 * tHeart) - 2 * Math.cos(3 * tHeart) - Math.cos(4 * tHeart);
+                const rFill = Math.pow(Math.random(), 0.3);
+                hx *= rFill; hy *= rFill;
+                let hz = (Math.random() - 0.5) * 8 * rFill;
+                const scaleH = 2.2;
+                const heartPos = new THREE.Vector3(hx * scaleH, hy * scaleH + 5, hz);
+
+                // Đặt vị trí ban đầu là TREE
+                mesh.position.copy(treePos);
+                mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+
+                particleGroup.add(mesh);
+
+                // Lưu thông tin particle
+                meshParticles.push({
+                    mesh: mesh,
+                    type: type,
+                    treePos: treePos,
+                    explodePos: explodePos,
+                    heartPos: heartPos,
+                    phase: Math.random() * Math.PI * 2,
+                    rotationSpeed: new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.02,
+                        (Math.random() - 0.5) * 0.02,
+                        (Math.random() - 0.5) * 0.02
+                    ),
+                    velocity: new THREE.Vector3(0, 0, 0)
+                });
+            }
         }
 
         function createParticleSystem(type, count, size) {
@@ -667,6 +869,56 @@
             }
         }
 
+        // === CẬP NHẬT MESH PARTICLES ===
+        function updateMeshParticles(targetState, speed, handRotY, time) {
+            if (!particleGroup || meshParticles.length === 0) return;
+
+            meshParticles.forEach((particle, idx) => {
+                const mesh = particle.mesh;
+                let targetPos;
+
+                // Chọn target position theo state
+                if (targetState === 'TREE') {
+                    targetPos = particle.treePos;
+                } else if (targetState === 'HEART') {
+                    targetPos = particle.heartPos;
+                } else {
+                    targetPos = particle.explodePos;
+                }
+
+                // Lerp position
+                mesh.position.lerp(targetPos, speed);
+
+                // Rotation animation
+                mesh.rotation.x += particle.rotationSpeed.x;
+                mesh.rotation.y += particle.rotationSpeed.y;
+                mesh.rotation.z += particle.rotationSpeed.z;
+
+                // Hiệu ứng lấp lánh cho gold và red
+                if (particle.type === 'goldBox' || particle.type === 'goldSphere') {
+                    const brightness = 0.7 + 0.3 * Math.sin(time * 8 + particle.phase);
+                    mesh.material.emissive = new THREE.Color(0xFFD700).multiplyScalar(brightness * 0.3);
+                } else if (particle.type === 'redSphere') {
+                    const brightness = 0.7 + 0.3 * Math.sin(time * 6 + particle.phase);
+                    mesh.material.emissive = new THREE.Color(0xFF0000).multiplyScalar(brightness * 0.2);
+                }
+            });
+
+            // Xoay toàn bộ group
+            if (targetState === 'TREE') {
+                particleGroup.rotation.y += 0.003;
+            } else if (targetState === 'HEART') {
+                particleGroup.rotation.y = 0;
+                const beatScale = 1 + Math.abs(Math.sin(time * 3)) * 0.1;
+                particleGroup.scale.set(beatScale, beatScale, beatScale);
+            } else {
+                particleGroup.scale.set(1, 1, 1);
+                if (hasHandDetected) {
+                    particleGroup.rotation.y += (handRotY - particleGroup.rotation.y) * 0.1;
+                }
+            }
+        }
+
         function animate() {
             requestAnimationFrame(animate);
             const time = Date.now() * 0.001;
@@ -674,9 +926,17 @@
             // Tính handRotY từ handX, nhưng chỉ khi có tay trong khung hình
             const handRotY = hasHandDetected ? (handX - 0.5) * 4.0 : (explodeRotationY / Math.PI * 2 - 0.5) * 4.0;
 
-            updateParticleGroup(groupGold, 'gold', state, speed, handRotY, time);
-            updateParticleGroup(groupRed, 'red', state, speed, handRotY, time);
-            updateParticleGroup(groupGift, 'gift', state, speed, handRotY, time);
+            // Cập nhật mesh particles thay vì point particles
+            updateMeshParticles(state, speed, handRotY, time);
+
+            // Cập nhật ngôi sao đỉnh 3D
+            if (topStar3D) {
+                topStar3D.rotation.y += 0.01;
+                topStar3D.rotation.z = Math.sin(time * 2) * 0.1;
+                // Hiệu ứng phát sáng nhấp nháy
+                const emissiveIntensity = 1.0 + Math.sin(time * 4) * 0.5;
+                topStar3D.material.emissiveIntensity = emissiveIntensity;
+            }
 
             photoMeshes.forEach((mesh, i) => {
                 if (!mesh.material.map && photoTextures[i]) {
@@ -686,6 +946,7 @@
 
             if (state === 'TREE') {
                 titleMesh.visible = true; starMesh.visible = true; loveMesh.visible = false;
+                if (topStar3D) topStar3D.visible = true;
                 titleMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
                 starMesh.rotation.z -= 0.02;
                 starMesh.material.opacity = 0.7 + 0.3 * Math.sin(time * 5);
@@ -699,6 +960,7 @@
 
             } else if (state === 'HEART') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = true;
+                if (topStar3D) topStar3D.visible = false;
                 photoMeshes.forEach(m => { m.visible = false; });
                 if (magicDustTrail) magicDustTrail.visible = false;
                 const s = 1 + Math.abs(Math.sin(time * 3)) * 0.1;
@@ -706,6 +968,7 @@
 
             } else if (state === 'EXPLODE') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
+                if (topStar3D) topStar3D.visible = false;
                 if (magicDustTrail) magicDustTrail.visible = false;
 
                 // Chỉ cập nhật góc xoay khi có tay trong khung hình
@@ -738,6 +1001,7 @@
 
             } else if (state === 'PHOTO') {
                 loveMesh.visible = false;
+                if (topStar3D) topStar3D.visible = false;
                 if (magicDustTrail) magicDustTrail.visible = false;
                 photoMeshes.forEach((mesh, i) => {
                     if (i === selectedIndex) {
