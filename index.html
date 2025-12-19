@@ -151,6 +151,8 @@
         let state = 'TREE'; 
         let selectedIndex = 0;
         let handX = 0.5;
+        let explodeRotationY = 0; // Góc xoay của EXPLODE state, giữ nguyên khi bỏ tay ra
+        let hasHandDetected = false; // Theo dõi xem có tay trong khung hình không
 
         // ==========================================
         // 3. THREE.JS SYSTEM Vandiep
@@ -388,7 +390,10 @@
             } else {
                 // EXPLODE
                 group.scale.set(1,1,1);
-                group.rotation.y += (handRotY - group.rotation.y) * 0.1;
+                // Chỉ cập nhật góc xoay khi có tay trong khung hình
+                if (hasHandDetected) {
+                    group.rotation.y += (handRotY - group.rotation.y) * 0.1;
+                }
 
                 // size, color
                 for(let i=0; i<count; i++) {
@@ -410,7 +415,8 @@
             requestAnimationFrame(animate);
             const time = Date.now() * 0.001;
             const speed = 0.08;
-            const handRotY = (handX - 0.5) * 4.0;
+            // Tính handRotY từ handX, nhưng chỉ khi có tay trong khung hình
+            const handRotY = hasHandDetected ? (handX - 0.5) * 4.0 : (explodeRotationY / Math.PI * 2 - 0.5) * 4.0;
 
             updateParticleGroup(groupGold, 'gold', state, speed, handRotY, time);
             updateParticleGroup(groupRed, 'red', state, speed, handRotY, time);
@@ -437,7 +443,15 @@
 
             } else if (state === 'EXPLODE') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
-                const baseAngle = groupGold.rotation.y; 
+                
+                // Chỉ cập nhật góc xoay khi có tay trong khung hình
+                if (hasHandDetected) {
+                    // Cập nhật góc xoay từ tọa độ X của tay (0 đến 1 -> 0 đến 2*PI)
+                    explodeRotationY = handX * Math.PI * 2;
+                }
+                // Nếu không có tay, giữ nguyên góc xoay hiện tại (không reset)
+                
+                const baseAngle = explodeRotationY; // Sử dụng góc xoay đã lưu
                 const angleStep = (Math.PI * 2) / 5;
                 let bestIdx = 0; let maxZ = -999;
                 photoMeshes.forEach((mesh, i) => {
@@ -499,6 +513,7 @@
                 }
 
                 if(results.multiHandLandmarks.length > 0) {
+                    hasHandDetected = true; // Có tay trong khung hình
                     const lm = results.multiHandLandmarks[0];
                     handX = lm[9].x; 
                     const tips = [8,12,16,20]; const wrist = lm[0];
@@ -514,7 +529,12 @@
                         state = 'EXPLODE'; 
                     }
                 } else {
-                    state = 'TREE'; 
+                    hasHandDetected = false; // Không có tay trong khung hình
+                    // Nếu đang ở EXPLODE, giữ nguyên trạng thái và góc xoay
+                    // Chỉ chuyển về TREE nếu không phải EXPLODE
+                    if (state !== 'EXPLODE') {
+                        state = 'TREE'; 
+                    }
                 }
             });
 
