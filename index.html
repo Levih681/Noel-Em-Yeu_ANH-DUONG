@@ -134,9 +134,9 @@
         // 2. SYSTEM CONFIG Vandiep
         // ==========================================
         const CONFIG = {
-            goldCount: 2000,
-            redCount: 300,
-            giftCount: 150,
+            goldCount: 3000,  // Increased for more density
+            redCount: 450,   // Increased for more density
+            giftCount: 200,  // Increased for more density
             explodeRadius: 65,  
             photoOrbitRadius: 25,
             treeHeight: 70,
@@ -212,6 +212,7 @@
             const pHeartTargets = [];
             const sizes = []; 
             const phases = []; 
+            const twinklePhases = []; // For twinkling effect
             
             for(let i=0; i<count; i++) {
                 // --- TREE Vandiep ---
@@ -253,6 +254,7 @@
                 pPositions.push(pTreeTargets[i*3], pTreeTargets[i*3+1], pTreeTargets[i*3+2]);
                 sizes.push(size);
                 phases.push(Math.random() * Math.PI * 2);
+                twinklePhases.push(Math.random() * Math.PI * 2); // Random phase for twinkling
             }
 
             const geo = new THREE.BufferGeometry();
@@ -275,15 +277,16 @@
             
             geo.userData = { 
                 tree: pTreeTargets, explode: pExplodeTargets, heart: pHeartTargets, 
-                phases: phases, baseColor: baseColor, baseSize: size
+                phases: phases, twinklePhases: twinklePhases, baseColor: baseColor, baseSize: size
             };
 
             const mat = new THREE.PointsMaterial({
                 size: size,
                 map: textures[type],
-                transparent: true, opacity: 1.0,
-                vertexColors: true, 
-                blending: (type === 'gift') ? THREE.NormalBlending : THREE.AdditiveBlending, 
+                transparent: true, 
+                opacity: 1.0,
+                vertexColors: true,
+                blending: THREE.AdditiveBlending, // Use AdditiveBlending for all for brighter, glowing effect
                 depthWrite: false,
                 sizeAttenuation: true
             });
@@ -364,6 +367,7 @@
             const sizes = group.geometry.attributes.size.array;
             const colors = group.geometry.attributes.color.array;
             const phases = group.geometry.userData.phases;
+            const twinklePhases = group.geometry.userData.twinklePhases || phases; // Fallback to phases if not set
             let baseColor = group.geometry.userData.baseColor;
             const baseSize = group.geometry.userData.baseSize;
             
@@ -401,15 +405,31 @@
                 group.rotation.y += 0.003;
                 
                 for(let i=0; i<count; i++) {
-                    sizes[i] = baseSize;
+                    // Twinkling effect: Random size and opacity variation
+                    const twinkleSpeed = 2.0 + Math.random() * 3.0; // Different speeds for each particle
+                    const twinkleValue = 0.5 + 0.5 * Math.sin(time * twinkleSpeed + twinklePhases[i] * 2);
+                    
+                    // Size twinkling: vary between 0.4x and 1.6x base size
+                    const sizeVariation = 0.4 + twinkleValue * 1.2;
+                    sizes[i] = baseSize * sizeVariation;
+                    
+                    // Opacity twinkling effect (simulated through brightness for AdditiveBlending)
+                    const opacityVariation = 0.4 + twinkleValue * 0.6; // 0.4 to 1.0
+                    
+                    // Color brightness with twinkling enhancement
                     let brightness = 1.0;
                     if(type === 'red') {
-                        // RED
-                        brightness = 0.5 + 0.5 * Math.sin(time * 3 + phases[i]);
+                        // RED with enhanced twinkling
+                        brightness = (0.6 + 0.4 * Math.sin(time * 3 + phases[i])) * opacityVariation;
                     } else if(type === 'gold') {
-                        // YELLOW
-                        brightness = 0.8 + 0.4 * Math.sin(time * 10 + phases[i]);
+                        // YELLOW with enhanced twinkling - brighter for more sparkle
+                        brightness = (0.9 + 0.5 * Math.sin(time * 10 + phases[i])) * opacityVariation;
+                    } else {
+                        // GIFT with twinkling
+                        brightness = (0.8 + 0.2 * Math.sin(time * 5 + phases[i])) * opacityVariation;
                     }
+                    
+                    // Apply brightness to colors (this creates opacity effect with AdditiveBlending)
                     colors[i*3]   = baseColor.r * brightness;
                     colors[i*3+1] = baseColor.g * brightness;
                     colors[i*3+2] = baseColor.b * brightness;
