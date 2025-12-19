@@ -137,6 +137,7 @@
             goldCount: 3000,  // Increased for more density
             redCount: 450,   // Increased for more density
             giftCount: 200,  // Increased for more density
+            magicDustCount: 150, // Magic Dust particles
             explodeRadius: 65,  
             photoOrbitRadius: 25,
             treeHeight: 70,
@@ -144,7 +145,7 @@
         };
 
         let scene, camera, renderer;
-        let groupGold, groupRed, groupGift; 
+        let groupGold, groupRed, groupGift, groupMagicDust; 
         let photoMeshes = [];    
         let titleMesh, starMesh, loveMesh;
         
@@ -199,6 +200,7 @@
             groupGold = createParticleSystem('gold', CONFIG.goldCount, 2.0);
             groupRed = createParticleSystem('red', CONFIG.redCount, 3.5); 
             groupGift = createParticleSystem('gift', CONFIG.giftCount, 3.0); 
+            groupMagicDust = createMagicDustSystem();
 
             createPhotos();
             createDecorations();
@@ -291,6 +293,75 @@
                 sizeAttenuation: true
             });
 
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            return points;
+        }
+
+        // ==========================================
+        // MAGIC DUST SYSTEM Vandiep
+        // ==========================================
+        function createMagicDustSystem() {
+            const count = CONFIG.magicDustCount;
+            const pPositions = [];
+            const sizes = [];
+            const colors = new Float32Array(count * 3);
+            const phases = []; // Phase for spiral motion
+            const progress = []; // Progress from bottom to top (0 to 1)
+            const speeds = []; // Individual speed for each particle
+            const maxRadii = []; // Max radius for each particle
+            
+            // Gold color
+            const goldColor = new THREE.Color(0xFFD700);
+            
+            for(let i=0; i<count; i++) {
+                // Start at random position at tree base
+                const baseRadius = CONFIG.treeBaseRadius * (0.3 + Math.random() * 0.7);
+                maxRadii.push(baseRadius); // Store max radius
+                const baseAngle = Math.random() * Math.PI * 2;
+                const startX = baseRadius * Math.cos(baseAngle);
+                const startZ = baseRadius * Math.sin(baseAngle);
+                const startY = -CONFIG.treeHeight / 2 + Math.random() * 5; // Start near base
+                
+                pPositions.push(startX, startY, startZ);
+                sizes.push(1.5 + Math.random() * 1.5); // Small particles
+                phases.push(Math.random() * Math.PI * 2); // Random starting phase
+                progress.push(Math.random()); // Random starting progress
+                speeds.push(0.3 + Math.random() * 0.4); // Random speed 0.3-0.7
+                
+                // Set color to gold
+                colors[i*3] = goldColor.r;
+                colors[i*3+1] = goldColor.g;
+                colors[i*3+2] = goldColor.b;
+            }
+            
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pPositions, 3));
+            geo.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            geo.userData = {
+                phases: phases,
+                progress: progress,
+                speeds: speeds,
+                maxRadii: maxRadii,
+                baseSizes: sizes.slice() // Store initial sizes
+            };
+            
+            // Create gold glow texture for magic dust
+            const dustTexture = createCustomTexture('gold_glow');
+            
+            const mat = new THREE.PointsMaterial({
+                size: 2.0,
+                map: dustTexture,
+                transparent: true,
+                opacity: 1.0,
+                vertexColors: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                sizeAttenuation: true
+            });
+            
             const points = new THREE.Points(geo, mat);
             scene.add(points);
             return points;
@@ -472,6 +543,80 @@
             }
         }
 
+        // ==========================================
+        // UPDATE MAGIC DUST Vandiep
+        // ==========================================
+        function updateMagicDust(time) {
+            if (!groupMagicDust || state !== 'TREE') return;
+            
+            const positions = groupMagicDust.geometry.attributes.position.array;
+            const sizes = groupMagicDust.geometry.attributes.size.array;
+            const colors = groupMagicDust.geometry.attributes.color.array;
+            const phases = groupMagicDust.geometry.userData.phases;
+            const progress = groupMagicDust.geometry.userData.progress;
+            const speeds = groupMagicDust.geometry.userData.speeds;
+            const count = positions.length / 3;
+            
+            const goldColor = new THREE.Color(0xFFD700);
+            const spiralTurns = 2.5; // Number of spiral turns from bottom to top
+            const baseY = -CONFIG.treeHeight / 2;
+            const topY = CONFIG.treeHeight / 2;
+            const heightRange = CONFIG.treeHeight;
+            
+            for(let i=0; i<count; i++) {
+                // Update progress (0 to 1)
+                progress[i] += speeds[i] * 0.001; // Slow upward movement
+                if (progress[i] > 1.0) {
+                    progress[i] = 0; // Reset to bottom when reaching top
+                }
+                
+                // Calculate Y position (from bottom to top)
+                const y = baseY + progress[i] * heightRange;
+                
+                // Calculate radius (decreases as it goes up, like a tree)
+                const radiusRatio = 1 - progress[i]; // 1 at bottom, 0 at top
+                const maxRadius = groupMagicDust.geometry.userData.maxRadii[i];
+                const radius = maxRadius * radiusRatio * 0.8; // Slightly smaller for spiral effect
+                
+                // Calculate spiral angle
+                const angle = phases[i] + progress[i] * Math.PI * 2 * spiralTurns;
+                
+                // Calculate X and Z positions (spiral)
+                const x = radius * Math.cos(angle);
+                const z = radius * Math.sin(angle);
+                
+                // Update positions
+                positions[i*3] = x;
+                positions[i*3+1] = y;
+                positions[i*3+2] = z;
+                
+                // Fade opacity as it goes up (using brightness/color intensity)
+                const fadeStart = 0.7; // Start fading at 70% up
+                let opacity = 1.0;
+                if (progress[i] > fadeStart) {
+                    opacity = 1.0 - (progress[i] - fadeStart) / (1.0 - fadeStart);
+                }
+                
+                // Add twinkling effect
+                const twinkle = 0.7 + 0.3 * Math.sin(time * 5 + phases[i] * 2);
+                const finalOpacity = opacity * twinkle;
+                
+                // Apply opacity to color (for AdditiveBlending)
+                colors[i*3] = goldColor.r * finalOpacity;
+                colors[i*3+1] = goldColor.g * finalOpacity;
+                colors[i*3+2] = goldColor.b * finalOpacity;
+                
+                // Size variation (smaller as it goes up, with twinkling)
+                const baseSize = groupMagicDust.geometry.userData.baseSizes[i];
+                const sizeVariation = (0.8 + progress[i] * 0.2) * finalOpacity * (0.9 + 0.1 * Math.sin(time * 3 + phases[i]));
+                sizes[i] = baseSize * sizeVariation;
+            }
+            
+            groupMagicDust.geometry.attributes.position.needsUpdate = true;
+            groupMagicDust.geometry.attributes.size.needsUpdate = true;
+            groupMagicDust.geometry.attributes.color.needsUpdate = true;
+        }
+
         function animate() {
             requestAnimationFrame(animate);
             const time = Date.now() * 0.001;
@@ -481,6 +626,7 @@
             updateParticleGroup(groupGold, 'gold', state, speed, handRotY, time);
             updateParticleGroup(groupRed, 'red', state, speed, handRotY, time);
             updateParticleGroup(groupGift, 'gift', state, speed, handRotY, time);
+            updateMagicDust(time);
 
             photoMeshes.forEach((mesh, i) => {
                 if(!mesh.material.map && photoTextures[i]) {
@@ -490,6 +636,7 @@
 
             if (state === 'TREE') {
                 titleMesh.visible = true; starMesh.visible = true; loveMesh.visible = false;
+                if (groupMagicDust) groupMagicDust.visible = true;
                 titleMesh.scale.lerp(new THREE.Vector3(1,1,1), 0.1);
                 starMesh.rotation.z -= 0.02; 
                 starMesh.material.opacity = 0.7 + 0.3*Math.sin(time*5);
@@ -497,12 +644,14 @@
 
             } else if (state === 'HEART') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = true;
+                if (groupMagicDust) groupMagicDust.visible = false;
                 photoMeshes.forEach(m => { m.visible = false; });
                 const s = 1 + Math.abs(Math.sin(time*3))*0.1;
                 loveMesh.scale.set(s,s,1);
 
             } else if (state === 'EXPLODE') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
+                if (groupMagicDust) groupMagicDust.visible = false;
                 const baseAngle = groupGold.rotation.y; 
                 const angleStep = (Math.PI * 2) / 5;
                 let bestIdx = 0; let maxZ = -999;
