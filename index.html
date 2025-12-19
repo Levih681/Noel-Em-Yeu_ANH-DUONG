@@ -130,6 +130,24 @@
             gift: createCustomTexture('gift_red')
         };
 
+        // Tạo texture hình tròn mờ cho bụi tiên
+        function createSoftCircleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            const cx = 32, cy = 32, radius = 30;
+            const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+            grd.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            grd.addColorStop(0.3, 'rgba(255, 215, 0, 0.8)');
+            grd.addColorStop(0.6, 'rgba(255, 215, 0, 0.4)');
+            grd.addColorStop(1, 'rgba(255, 215, 0, 0)');
+            ctx.fillStyle = grd;
+            ctx.fillRect(0, 0, 64, 64);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const magicDustTexture = createSoftCircleTexture();
+
         // ==========================================
         // 2. SYSTEM CONFIG Vandiep
         // ==========================================
@@ -147,6 +165,7 @@
         let groupGold, groupRed, groupGift; 
         let photoMeshes = [];    
         let titleMesh, starMesh, loveMesh;
+        let magicDustTrail = null; // Hệ thống bụi tiên bay xoắn ốc
         
         let state = 'TREE'; 
         let selectedIndex = 0;
@@ -175,6 +194,7 @@
             groupGift = createParticleSystem('gift', CONFIG.giftCount, 3.0); 
 
             createPhotos();
+            createMagicDustTrail(); // Tạo hệ thống bụi tiên
             createDecorations();
             animate();
         }
@@ -284,6 +304,60 @@
             }
         }
 
+        // Tạo hệ thống bụi tiên bay xoắn ốc quanh cây thông
+        function createMagicDustTrail() {
+            const particleCount = 250; // Số lượng hạt bụi tiên
+            const positions = [];
+            const sizes = [];
+            const speeds = []; // Tốc độ bay lên của mỗi hạt
+            const phases = []; // Pha ban đầu cho chuyển động xoắn ốc
+            
+            // Khởi tạo vị trí ban đầu: dưới gốc cây, X và Z ngẫu nhiên quanh gốc
+            const baseY = -CONFIG.treeHeight / 2 - 5; // Dưới gốc cây
+            const baseRadius = CONFIG.treeBaseRadius * 0.3; // Bán kính nhỏ quanh gốc
+            
+            for(let i = 0; i < particleCount; i++) {
+                // Vị trí ban đầu ngẫu nhiên quanh gốc
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * baseRadius;
+                const x = radius * Math.cos(angle);
+                const z = radius * Math.sin(angle);
+                const y = baseY + Math.random() * 5; // Phân bố ngẫu nhiên theo chiều cao ban đầu
+                
+                positions.push(x, y, z);
+                sizes.push(0.5 + Math.random() * 0.5); // Kích thước từ 0.5 đến 1.0
+                speeds.push(0.05 + Math.random() * 0.1); // Tốc độ bay lên khác nhau
+                phases.push(Math.random() * Math.PI * 2); // Pha ban đầu ngẫu nhiên
+            }
+            
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+            
+            // Lưu dữ liệu vào userData để sử dụng trong animate
+            geometry.userData = {
+                speeds: speeds,
+                phases: phases,
+                baseY: baseY,
+                baseRadius: baseRadius
+            };
+            
+            const material = new THREE.PointsMaterial({
+                color: 0xFFD700, // Màu vàng kim
+                size: 1.0,
+                map: magicDustTexture,
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                sizeAttenuation: true
+            });
+            
+            magicDustTrail = new THREE.Points(geometry, material);
+            magicDustTrail.visible = false; // Ẩn ban đầu, chỉ hiển thị khi TREE
+            scene.add(magicDustTrail);
+        }
+
         function createDecorations() {
             // MERRY CHRISTMAS Vandiep
             const canvas = document.createElement('canvas');
@@ -331,6 +405,51 @@
             loveMesh.position.set(0, 0, 20);
             loveMesh.visible = false;
             scene.add(loveMesh);
+        }
+
+        // Cập nhật chuyển động của bụi tiên
+        function updateMagicDustTrail(time) {
+            if (!magicDustTrail) return;
+            
+            const positions = magicDustTrail.geometry.attributes.position.array;
+            const speeds = magicDustTrail.geometry.userData.speeds;
+            const phases = magicDustTrail.geometry.userData.phases;
+            const baseY = magicDustTrail.geometry.userData.baseY;
+            const baseRadius = magicDustTrail.geometry.userData.baseRadius;
+            const treeTopY = CONFIG.treeHeight / 2;
+            
+            for(let i = 0; i < positions.length; i += 3) {
+                const idx = i / 3;
+                let y = positions[i + 1];
+                
+                // Chuyển động lên cao
+                y += speeds[idx];
+                
+                // Nếu hạt bay quá ngọn cây, reset về dưới gốc
+                if (y > treeTopY + 5) {
+                    y = baseY + Math.random() * 5;
+                }
+                
+                // Tính toán bán kính xoắn ốc (thu nhỏ dần khi lên cao)
+                const heightRatio = (y - baseY) / (treeTopY - baseY + 10); // Tỷ lệ chiều cao (0 đến 1)
+                const maxRadius = baseRadius + CONFIG.treeBaseRadius * 0.7; // Bán kính lớn nhất ở giữa
+                const radius = maxRadius * (1 - heightRatio * 0.7); // Thu nhỏ dần khi lên cao
+                
+                // Tính toán góc xoắn ốc (thay đổi theo Y và thời gian)
+                const spiralTurns = 3; // Số vòng xoắn từ dưới lên trên
+                const angle = phases[idx] + heightRatio * Math.PI * 2 * spiralTurns + time * 0.5;
+                
+                // Tính toán tọa độ X và Z theo hình xoắn ốc
+                const x = radius * Math.cos(angle);
+                const z = radius * Math.sin(angle);
+                
+                // Cập nhật vị trí
+                positions[i] = x;
+                positions[i + 1] = y;
+                positions[i + 2] = z;
+            }
+            
+            magicDustTrail.geometry.attributes.position.needsUpdate = true;
         }
 
         function updateParticleGroup(group, type, targetState, speed, handRotY, time) {
@@ -434,15 +553,23 @@
                 starMesh.rotation.z -= 0.02; 
                 starMesh.material.opacity = 0.7 + 0.3*Math.sin(time*5);
                 photoMeshes.forEach(m => { m.scale.lerp(new THREE.Vector3(0,0,0), 0.1); m.visible = false; });
+                
+                // Hiển thị và cập nhật bụi tiên
+                if (magicDustTrail) {
+                    magicDustTrail.visible = true;
+                    updateMagicDustTrail(time);
+                }
 
             } else if (state === 'HEART') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = true;
                 photoMeshes.forEach(m => { m.visible = false; });
+                if (magicDustTrail) magicDustTrail.visible = false;
                 const s = 1 + Math.abs(Math.sin(time*3))*0.1;
                 loveMesh.scale.set(s,s,1);
 
             } else if (state === 'EXPLODE') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
+                if (magicDustTrail) magicDustTrail.visible = false;
                 
                 // Chỉ cập nhật góc xoay khi có tay trong khung hình
                 if (hasHandDetected) {
@@ -474,6 +601,7 @@
 
             } else if (state === 'PHOTO') {
                 loveMesh.visible = false;
+                if (magicDustTrail) magicDustTrail.visible = false;
                 photoMeshes.forEach((mesh, i) => {
                     if (i === selectedIndex) {
                         mesh.position.lerp(new THREE.Vector3(0, 0, 60), 0.1);
