@@ -70,7 +70,7 @@
     <div id="ui-layer">
         <!-- Vandiep -->
         <div class="guide">
-            🖐 <b>Open:</b> Explode &nbsp;|&nbsp; 🫶 <b>Heart:</b> Love &nbsp;|&nbsp; ✊ <b>Fist:</b> Tree &nbsp;|&nbsp; ✌️ <b>Victory:</b> Change Color
+            🖐 <b>Open:</b> Explode &nbsp;|&nbsp; 🫶 <b>Heart:</b> Love &nbsp;|&nbsp; ✊ <b>Fist:</b> Tree
         </div>
         <button id="btnStart" onclick="startSystem()">START MAGIC</button>
     </div>
@@ -134,10 +134,9 @@
         // 2. SYSTEM CONFIG Vandiep
         // ==========================================
         const CONFIG = {
-            goldCount: 3000,  // Increased for more density
-            redCount: 450,   // Increased for more density
-            giftCount: 200,  // Increased for more density
-            magicDustCount: 150, // Magic Dust particles
+            goldCount: 2000,
+            redCount: 300,
+            giftCount: 150,
             explodeRadius: 65,  
             photoOrbitRadius: 25,
             treeHeight: 70,
@@ -145,44 +144,16 @@
         };
 
         let scene, camera, renderer;
-        let groupGold, groupRed, groupGift, groupMagicDust; 
+        let groupGold, groupRed, groupGift; 
         let photoMeshes = [];    
         let titleMesh, starMesh, loveMesh;
         
         let state = 'TREE'; 
         let selectedIndex = 0;
         let handX = 0.5;
-        
-        // Color transition variables for smooth color change
-        let colorTransition = {
-            active: false,
-            progress: 0,
-            speed: 0.05,
-            targetColors: { gold: null, red: null, gift: null }
-        };
-        let lastVictoryGesture = false; // Track previous Victory gesture state
 
         // ==========================================
-        // 3. COLOR CHANGE FUNCTION Vandiep
-        // ==========================================
-        function changeTreeColorRandom() {
-            // Generate random colors for each particle group
-            const randomColor = () => {
-                const hue = Math.random() * 360;
-                const saturation = 0.7 + Math.random() * 0.3; // 0.7-1.0
-                const lightness = 0.5 + Math.random() * 0.3; // 0.5-0.8
-                return new THREE.Color().setHSL(hue / 360, saturation, lightness);
-            };
-            
-            colorTransition.targetColors.gold = randomColor();
-            colorTransition.targetColors.red = randomColor();
-            colorTransition.targetColors.gift = randomColor();
-            colorTransition.active = true;
-            colorTransition.progress = 0;
-        }
-        
-        // ==========================================
-        // 4. THREE.JS SYSTEM Vandiep
+        // 3. THREE.JS SYSTEM Vandiep
         // ==========================================
         function init3D() {
             const container = document.getElementById('canvas-container');
@@ -200,7 +171,6 @@
             groupGold = createParticleSystem('gold', CONFIG.goldCount, 2.0);
             groupRed = createParticleSystem('red', CONFIG.redCount, 3.5); 
             groupGift = createParticleSystem('gift', CONFIG.giftCount, 3.0); 
-            groupMagicDust = createMagicDustSystem();
 
             createPhotos();
             createDecorations();
@@ -214,7 +184,6 @@
             const pHeartTargets = [];
             const sizes = []; 
             const phases = []; 
-            const twinklePhases = []; // For twinkling effect
             
             for(let i=0; i<count; i++) {
                 // --- TREE Vandiep ---
@@ -256,7 +225,6 @@
                 pPositions.push(pTreeTargets[i*3], pTreeTargets[i*3+1], pTreeTargets[i*3+2]);
                 sizes.push(size);
                 phases.push(Math.random() * Math.PI * 2);
-                twinklePhases.push(Math.random() * Math.PI * 2); // Random phase for twinkling
             }
 
             const geo = new THREE.BufferGeometry();
@@ -279,89 +247,19 @@
             
             geo.userData = { 
                 tree: pTreeTargets, explode: pExplodeTargets, heart: pHeartTargets, 
-                phases: phases, twinklePhases: twinklePhases, baseColor: baseColor, baseSize: size
+                phases: phases, baseColor: baseColor, baseSize: size
             };
 
             const mat = new THREE.PointsMaterial({
                 size: size,
                 map: textures[type],
-                transparent: true, 
-                opacity: 1.0,
-                vertexColors: true,
-                blending: THREE.AdditiveBlending, // Use AdditiveBlending for all for brighter, glowing effect
+                transparent: true, opacity: 1.0,
+                vertexColors: true, 
+                blending: (type === 'gift') ? THREE.NormalBlending : THREE.AdditiveBlending, 
                 depthWrite: false,
                 sizeAttenuation: true
             });
 
-            const points = new THREE.Points(geo, mat);
-            scene.add(points);
-            return points;
-        }
-
-        // ==========================================
-        // MAGIC DUST SYSTEM Vandiep
-        // ==========================================
-        function createMagicDustSystem() {
-            const count = CONFIG.magicDustCount;
-            const pPositions = [];
-            const sizes = [];
-            const colors = new Float32Array(count * 3);
-            const phases = []; // Phase for spiral motion
-            const progress = []; // Progress from bottom to top (0 to 1)
-            const speeds = []; // Individual speed for each particle
-            const maxRadii = []; // Max radius for each particle
-            
-            // Gold color
-            const goldColor = new THREE.Color(0xFFD700);
-            
-            for(let i=0; i<count; i++) {
-                // Start at random position at tree base
-                const baseRadius = CONFIG.treeBaseRadius * (0.3 + Math.random() * 0.7);
-                maxRadii.push(baseRadius); // Store max radius
-                const baseAngle = Math.random() * Math.PI * 2;
-                const startX = baseRadius * Math.cos(baseAngle);
-                const startZ = baseRadius * Math.sin(baseAngle);
-                const startY = -CONFIG.treeHeight / 2 + Math.random() * 5; // Start near base
-                
-                pPositions.push(startX, startY, startZ);
-                sizes.push(1.5 + Math.random() * 1.5); // Small particles
-                phases.push(Math.random() * Math.PI * 2); // Random starting phase
-                progress.push(Math.random()); // Random starting progress
-                speeds.push(0.3 + Math.random() * 0.4); // Random speed 0.3-0.7
-                
-                // Set color to gold
-                colors[i*3] = goldColor.r;
-                colors[i*3+1] = goldColor.g;
-                colors[i*3+2] = goldColor.b;
-            }
-            
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.Float32BufferAttribute(pPositions, 3));
-            geo.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
-            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-            
-            geo.userData = {
-                phases: phases,
-                progress: progress,
-                speeds: speeds,
-                maxRadii: maxRadii,
-                baseSizes: sizes.slice() // Store initial sizes
-            };
-            
-            // Create gold glow texture for magic dust
-            const dustTexture = createCustomTexture('gold_glow');
-            
-            const mat = new THREE.PointsMaterial({
-                size: 2.0,
-                map: dustTexture,
-                transparent: true,
-                opacity: 1.0,
-                vertexColors: true,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false,
-                sizeAttenuation: true
-            });
-            
             const points = new THREE.Points(geo, mat);
             scene.add(points);
             return points;
@@ -438,27 +336,8 @@
             const sizes = group.geometry.attributes.size.array;
             const colors = group.geometry.attributes.color.array;
             const phases = group.geometry.userData.phases;
-            const twinklePhases = group.geometry.userData.twinklePhases || phases; // Fallback to phases if not set
-            let baseColor = group.geometry.userData.baseColor;
+            const baseColor = group.geometry.userData.baseColor;
             const baseSize = group.geometry.userData.baseSize;
-            
-            // Handle smooth color transition
-            if (colorTransition.active && colorTransition.targetColors[type]) {
-                // Continue transition progress regardless of state
-                colorTransition.progress += colorTransition.speed;
-                if (colorTransition.progress >= 1.0) {
-                    colorTransition.progress = 1.0;
-                    colorTransition.active = false;
-                }
-                
-                // Only apply color change when in TREE state
-                if (targetState === 'TREE') {
-                    // Lerp between current baseColor and target color
-                    const targetColor = colorTransition.targetColors[type];
-                    baseColor = baseColor.clone().lerp(targetColor, colorTransition.progress);
-                    group.geometry.userData.baseColor = baseColor;
-                }
-            }
             
             const targetKey = (targetState === 'TREE') ? 'tree' : (targetState === 'HEART' ? 'heart' : 'explode');
             const targets = group.geometry.userData[(targetState === 'PHOTO') ? 'explode' : targetKey];
@@ -476,31 +355,15 @@
                 group.rotation.y += 0.003;
                 
                 for(let i=0; i<count; i++) {
-                    // Twinkling effect: Random size and opacity variation
-                    const twinkleSpeed = 2.0 + Math.random() * 3.0; // Different speeds for each particle
-                    const twinkleValue = 0.5 + 0.5 * Math.sin(time * twinkleSpeed + twinklePhases[i] * 2);
-                    
-                    // Size twinkling: vary between 0.4x and 1.6x base size
-                    const sizeVariation = 0.4 + twinkleValue * 1.2;
-                    sizes[i] = baseSize * sizeVariation;
-                    
-                    // Opacity twinkling effect (simulated through brightness for AdditiveBlending)
-                    const opacityVariation = 0.4 + twinkleValue * 0.6; // 0.4 to 1.0
-                    
-                    // Color brightness with twinkling enhancement
+                    sizes[i] = baseSize;
                     let brightness = 1.0;
                     if(type === 'red') {
-                        // RED with enhanced twinkling
-                        brightness = (0.6 + 0.4 * Math.sin(time * 3 + phases[i])) * opacityVariation;
+                        // RED
+                        brightness = 0.5 + 0.5 * Math.sin(time * 3 + phases[i]);
                     } else if(type === 'gold') {
-                        // YELLOW with enhanced twinkling - brighter for more sparkle
-                        brightness = (0.9 + 0.5 * Math.sin(time * 10 + phases[i])) * opacityVariation;
-                    } else {
-                        // GIFT with twinkling
-                        brightness = (0.8 + 0.2 * Math.sin(time * 5 + phases[i])) * opacityVariation;
+                        // YELLOW
+                        brightness = 0.8 + 0.4 * Math.sin(time * 10 + phases[i]);
                     }
-                    
-                    // Apply brightness to colors (this creates opacity effect with AdditiveBlending)
                     colors[i*3]   = baseColor.r * brightness;
                     colors[i*3+1] = baseColor.g * brightness;
                     colors[i*3+2] = baseColor.b * brightness;
@@ -543,80 +406,6 @@
             }
         }
 
-        // ==========================================
-        // UPDATE MAGIC DUST Vandiep
-        // ==========================================
-        function updateMagicDust(time) {
-            if (!groupMagicDust || state !== 'TREE') return;
-            
-            const positions = groupMagicDust.geometry.attributes.position.array;
-            const sizes = groupMagicDust.geometry.attributes.size.array;
-            const colors = groupMagicDust.geometry.attributes.color.array;
-            const phases = groupMagicDust.geometry.userData.phases;
-            const progress = groupMagicDust.geometry.userData.progress;
-            const speeds = groupMagicDust.geometry.userData.speeds;
-            const count = positions.length / 3;
-            
-            const goldColor = new THREE.Color(0xFFD700);
-            const spiralTurns = 2.5; // Number of spiral turns from bottom to top
-            const baseY = -CONFIG.treeHeight / 2;
-            const topY = CONFIG.treeHeight / 2;
-            const heightRange = CONFIG.treeHeight;
-            
-            for(let i=0; i<count; i++) {
-                // Update progress (0 to 1)
-                progress[i] += speeds[i] * 0.001; // Slow upward movement
-                if (progress[i] > 1.0) {
-                    progress[i] = 0; // Reset to bottom when reaching top
-                }
-                
-                // Calculate Y position (from bottom to top)
-                const y = baseY + progress[i] * heightRange;
-                
-                // Calculate radius (decreases as it goes up, like a tree)
-                const radiusRatio = 1 - progress[i]; // 1 at bottom, 0 at top
-                const maxRadius = groupMagicDust.geometry.userData.maxRadii[i];
-                const radius = maxRadius * radiusRatio * 0.8; // Slightly smaller for spiral effect
-                
-                // Calculate spiral angle
-                const angle = phases[i] + progress[i] * Math.PI * 2 * spiralTurns;
-                
-                // Calculate X and Z positions (spiral)
-                const x = radius * Math.cos(angle);
-                const z = radius * Math.sin(angle);
-                
-                // Update positions
-                positions[i*3] = x;
-                positions[i*3+1] = y;
-                positions[i*3+2] = z;
-                
-                // Fade opacity as it goes up (using brightness/color intensity)
-                const fadeStart = 0.7; // Start fading at 70% up
-                let opacity = 1.0;
-                if (progress[i] > fadeStart) {
-                    opacity = 1.0 - (progress[i] - fadeStart) / (1.0 - fadeStart);
-                }
-                
-                // Add twinkling effect
-                const twinkle = 0.7 + 0.3 * Math.sin(time * 5 + phases[i] * 2);
-                const finalOpacity = opacity * twinkle;
-                
-                // Apply opacity to color (for AdditiveBlending)
-                colors[i*3] = goldColor.r * finalOpacity;
-                colors[i*3+1] = goldColor.g * finalOpacity;
-                colors[i*3+2] = goldColor.b * finalOpacity;
-                
-                // Size variation (smaller as it goes up, with twinkling)
-                const baseSize = groupMagicDust.geometry.userData.baseSizes[i];
-                const sizeVariation = (0.8 + progress[i] * 0.2) * finalOpacity * (0.9 + 0.1 * Math.sin(time * 3 + phases[i]));
-                sizes[i] = baseSize * sizeVariation;
-            }
-            
-            groupMagicDust.geometry.attributes.position.needsUpdate = true;
-            groupMagicDust.geometry.attributes.size.needsUpdate = true;
-            groupMagicDust.geometry.attributes.color.needsUpdate = true;
-        }
-
         function animate() {
             requestAnimationFrame(animate);
             const time = Date.now() * 0.001;
@@ -626,7 +415,6 @@
             updateParticleGroup(groupGold, 'gold', state, speed, handRotY, time);
             updateParticleGroup(groupRed, 'red', state, speed, handRotY, time);
             updateParticleGroup(groupGift, 'gift', state, speed, handRotY, time);
-            updateMagicDust(time);
 
             photoMeshes.forEach((mesh, i) => {
                 if(!mesh.material.map && photoTextures[i]) {
@@ -636,7 +424,6 @@
 
             if (state === 'TREE') {
                 titleMesh.visible = true; starMesh.visible = true; loveMesh.visible = false;
-                if (groupMagicDust) groupMagicDust.visible = true;
                 titleMesh.scale.lerp(new THREE.Vector3(1,1,1), 0.1);
                 starMesh.rotation.z -= 0.02; 
                 starMesh.material.opacity = 0.7 + 0.3*Math.sin(time*5);
@@ -644,14 +431,12 @@
 
             } else if (state === 'HEART') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = true;
-                if (groupMagicDust) groupMagicDust.visible = false;
                 photoMeshes.forEach(m => { m.visible = false; });
                 const s = 1 + Math.abs(Math.sin(time*3))*0.1;
                 loveMesh.scale.set(s,s,1);
 
             } else if (state === 'EXPLODE') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
-                if (groupMagicDust) groupMagicDust.visible = false;
                 const baseAngle = groupGold.rotation.y; 
                 const angleStep = (Math.PI * 2) / 5;
                 let bestIdx = 0; let maxZ = -999;
@@ -716,38 +501,7 @@
                 if(results.multiHandLandmarks.length > 0) {
                     const lm = results.multiHandLandmarks[0];
                     handX = lm[9].x; 
-                    
-                    // --- Victory Gesture Detection (Index + Middle up, others down) ---
-                    const indexTip = lm[8];   // Index finger tip
-                    const middleTip = lm[12]; // Middle finger tip
-                    const ringTip = lm[16];   // Ring finger tip
-                    const pinkyTip = lm[20];  // Pinky finger tip
-                    const wrist = lm[0];      // Wrist
-                    
-                    // Check if index and middle fingers are extended (up)
-                    const indexExtended = indexTip.y < lm[6].y && indexTip.y < lm[5].y; // Tip above PIP and MCP
-                    const middleExtended = middleTip.y < lm[10].y && middleTip.y < lm[9].y;
-                    
-                    // Check if ring and pinky fingers are closed (down)
-                    const ringClosed = ringTip.y > lm[14].y; // Tip below PIP
-                    const pinkyClosed = pinkyTip.y > lm[18].y;
-                    
-                    // Check if thumb is closed (optional, for better detection)
-                    const thumbClosed = lm[4].x < lm[3].x || Math.abs(lm[4].y - lm[3].y) < 0.05;
-                    
-                    // Victory gesture: Index and Middle up, Ring and Pinky down
-                    const isVictory = indexExtended && middleExtended && ringClosed && pinkyClosed;
-                    
-                    // Only trigger when gesture is first detected (not while holding) and state is TREE
-                    if (isVictory && !lastVictoryGesture && state === 'TREE') {
-                        // Only trigger if not already transitioning or transition is almost complete
-                        if (!colorTransition.active || colorTransition.progress > 0.9) {
-                            changeTreeColorRandom();
-                        }
-                    }
-                    lastVictoryGesture = isVictory;
-                    
-                    const tips = [8,12,16,20]; 
+                    const tips = [8,12,16,20]; const wrist = lm[0];
                     let openDist = 0; tips.forEach(i => openDist += Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y));
                     const avgDist = openDist / 4;
                     const pinchDist = Math.hypot(lm[4].x-lm[8].x, lm[4].y-lm[8].y);
