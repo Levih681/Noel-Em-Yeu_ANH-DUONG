@@ -5,8 +5,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Magic Christmas - Final Clean</title>
+    <!-- Import Map cho ES Modules -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
         crossorigin="anonymous"></script>
@@ -130,7 +138,19 @@
     <video class="input_video" style="display:none"></video>
     <canvas id="camera-preview"></canvas>
 
-    <script>
+    <script type="module">
+        // ==========================================
+        // IMPORTS - Three.js và Post-Processing
+        // ==========================================
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+        // Biến cho post-processing
+        let composer;
+
         // ==========================================
         // 1. RESOURCES CONFIG Vandiep
         // ==========================================
@@ -139,9 +159,47 @@
         bgMusic.loop = true; bgMusic.volume = 1.0;
 
         const loader = new THREE.TextureLoader();
-        const photoFiles = ['./images/image1.jpeg', './images/image2.jpeg', './images/image3.jpeg', './images/image4.jpeg', './images/image5.jpeg'];
+
+        // === TẢI ẢNH VỚI CƠ CHẾ FALLBACK CHO ĐUÔI FILE ===
+        const photoCount = 12; // Tổng số ảnh
         const photoTextures = [];
-        photoFiles.forEach((f, i) => photoTextures[i] = loader.load(f));
+        const validExtensions = ['jpeg', 'jpg', 'png']; // Các đuôi file phổ biến
+
+        // Hàm tải texture với fallback cho các đuôi file khác nhau
+        function loadTextureWithFallback(index, extIndex = 0) {
+            if (extIndex >= validExtensions.length) {
+                console.warn(`Không thể tải ảnh image${index} với bất kỳ đuôi nào`);
+                return null;
+            }
+
+            const path = `./images/image${index}.${validExtensions[extIndex]}`;
+
+            try {
+                const texture = loader.load(
+                    path,
+                    // onLoad callback
+                    (tex) => {
+                        photoTextures[index - 1] = tex;
+                    },
+                    // onProgress callback (unused)
+                    undefined,
+                    // onError callback - thử đuôi file tiếp theo
+                    (err) => {
+                        console.log(`Thử tải ${path} thất bại, thử đuôi tiếp theo...`);
+                        loadTextureWithFallback(index, extIndex + 1);
+                    }
+                );
+                photoTextures[index - 1] = texture;
+            } catch (e) {
+                console.log(`Lỗi tải ảnh ${index}, thử đuôi tiếp theo...`);
+                loadTextureWithFallback(index, extIndex + 1);
+            }
+        }
+
+        // Tải tất cả 12 ảnh
+        for (let i = 1; i <= photoCount; i++) {
+            loadTextureWithFallback(i);
+        }
 
         function createCustomTexture(type) {
             const canvas = document.createElement('canvas');
@@ -244,6 +302,71 @@
         // ==========================================
         // 3. THREE.JS SYSTEM Vandiep
         // ==========================================
+
+        // === CẤU HÌNH ÁNH SÁNG ===
+        function setupLights() {
+            // Ambient Light - ánh sáng môi trường nhẹ
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+            scene.add(ambientLight);
+
+            // Point Light - ánh sáng vàng cam ở giữa thân cây
+            const centerLight = new THREE.PointLight(0xffaa00, 3.0, 100);
+            centerLight.position.set(0, 0, 0);
+            scene.add(centerLight);
+
+            // Point Light - ánh sáng từ ngôi sao đỉnh
+            const starLight = new THREE.PointLight(0xFFD700, 2.5, 150);
+            starLight.position.set(0, CONFIG.treeHeight / 2 + 10, 0);
+            scene.add(starLight);
+
+            // Spot Light - đèn chiếu từ trên xuống
+            const spotLight = new THREE.SpotLight(0xFFFFFF, 2.0);
+            spotLight.position.set(0, 120, 60);
+            spotLight.angle = Math.PI / 5;
+            spotLight.penumbra = 0.4;
+            spotLight.decay = 1.5;
+            spotLight.distance = 250;
+            spotLight.target.position.set(0, 0, 0);
+            scene.add(spotLight);
+            scene.add(spotLight.target);
+
+            // Directional Light - để tạo bóng khối 3D
+            const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.8);
+            directionalLight.position.set(-40, 60, 40);
+            scene.add(directionalLight);
+        }
+
+        // === CẤU HÌNH MÔI TRƯỜNG PHẢN CHIẾU ===
+        function setupEnvironment() {
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            pmremGenerator.compileEquirectangularShader();
+
+            // Tạo RoomEnvironment cho phản chiếu
+            const roomEnv = new RoomEnvironment();
+            const envTexture = pmremGenerator.fromScene(roomEnv).texture;
+
+            scene.environment = envTexture;
+            pmremGenerator.dispose();
+        }
+
+        // === CẤU HÌNH POST-PROCESSING (BLOOM) ===
+        function setupPostProcessing() {
+            composer = new EffectComposer(renderer);
+
+            // RenderPass - render scene bình thường
+            const renderPass = new RenderPass(scene, camera);
+            composer.addPass(renderPass);
+
+            // UnrealBloomPass - hiệu ứng phát sáng
+            const bloomPass = new UnrealBloomPass(
+                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                1.5,    // strength - độ mạnh của bloom
+                0.4,    // radius - bán kính phát sáng
+                0.7     // threshold - ngưỡng sáng để áp dụng bloom
+            );
+            composer.addPass(bloomPass);
+        }
+
         function init3D() {
             const container = document.getElementById('canvas-container');
             scene = new THREE.Scene();
@@ -255,39 +378,14 @@
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.physicallyCorrectLights = true;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
             container.appendChild(renderer.domElement);
 
-            // === THÊM HỆ THỐNG ÁNH SÁNG ===
-            // Ambient Light - ánh sáng môi trường
-            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
-            scene.add(ambientLight);
-
-            // Point Light - ánh sáng điểm từ ngôi sao đỉnh
-            const pointLight = new THREE.PointLight(0xFFD700, 2.0, 150);
-            pointLight.position.set(0, CONFIG.treeHeight / 2 + 10, 0);
-            scene.add(pointLight);
-
-            // Point Light phụ - ánh sáng đỏ ấm
-            const redPointLight = new THREE.PointLight(0xFF6600, 1.0, 100);
-            redPointLight.position.set(20, 0, 30);
-            scene.add(redPointLight);
-
-            // Spot Light - đèn chiếu từ trên xuống
-            const spotLight = new THREE.SpotLight(0xFFFFFF, 1.5);
-            spotLight.position.set(0, 100, 50);
-            spotLight.angle = Math.PI / 4;
-            spotLight.penumbra = 0.3;
-            spotLight.decay = 1;
-            spotLight.distance = 200;
-            spotLight.target.position.set(0, 0, 0);
-            scene.add(spotLight);
-            scene.add(spotLight.target);
-
-            // Thêm directional light để có bóng đẹp hơn
-            const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.5);
-            directionalLight.position.set(-30, 50, 30);
-            scene.add(directionalLight);
+            // === SETUP HỆ THỐNG ===
+            setupLights();
+            setupEnvironment();
+            setupPostProcessing();
 
             // === TẠO PARTICLES VÀ TRANG TRÍ ===
             createParticles();
@@ -547,7 +645,8 @@
             const borderGeo = new THREE.PlaneGeometry(9, 9);
             const borderMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 });
 
-            for (let i = 0; i < 5; i++) {
+            // Tạo mesh cho tất cả 12 ảnh
+            for (let i = 0; i < photoCount; i++) {
                 const mat = new THREE.MeshBasicMaterial({ map: photoTextures[i], side: THREE.DoubleSide });
                 const mesh = new THREE.Mesh(geo, mat);
                 const border = new THREE.Mesh(borderGeo, borderMat);
@@ -979,22 +1078,35 @@
                 // Nếu không có tay, giữ nguyên góc xoay hiện tại (không reset)
 
                 const baseAngle = explodeRotationY; // Sử dụng góc xoay đã lưu
-                const angleStep = (Math.PI * 2) / 5;
+                const totalPhotos = photoMeshes.length;
                 let bestIdx = 0; let maxZ = -999;
+
+                // Phân bố ảnh theo hình cầu (spherical layout) với 2 hàng
                 photoMeshes.forEach((mesh, i) => {
                     mesh.visible = true;
-                    const angle = baseAngle + i * angleStep;
+
+                    // Chia ảnh thành 2 hàng: 6 ảnh trên, 6 ảnh dưới
+                    const row = Math.floor(i / 6); // 0 = hàng trên, 1 = hàng dưới
+                    const indexInRow = i % 6; // Vị trí trong hàng (0-5)
+                    const angleStep = (Math.PI * 2) / 6; // 6 ảnh mỗi hàng
+
+                    const angle = baseAngle + indexInRow * angleStep + (row * angleStep / 2); // Lệch pha giữa 2 hàng
                     const x = Math.sin(angle) * CONFIG.photoOrbitRadius;
                     const z = Math.cos(angle) * CONFIG.photoOrbitRadius;
-                    const y = Math.sin(time + i) * 3;
+
+                    // Hàng trên cao hơn, hàng dưới thấp hơn
+                    const baseY = (row === 0) ? 8 : -8;
+                    const y = baseY + Math.sin(time * 0.5 + i * 0.5) * 2;
+
                     mesh.position.lerp(new THREE.Vector3(x, y, z), 0.1);
                     mesh.lookAt(camera.position);
+
                     if (z > maxZ) { maxZ = z; bestIdx = i; }
                     if (z > 5) {
-                        const ds = 1.0 + (z / CONFIG.photoOrbitRadius) * 0.8;
+                        const ds = 0.9 + (z / CONFIG.photoOrbitRadius) * 0.6;
                         mesh.scale.lerp(new THREE.Vector3(ds, ds, ds), 0.1);
                     } else {
-                        mesh.scale.lerp(new THREE.Vector3(0.6, 0.6, 0.6), 0.1);
+                        mesh.scale.lerp(new THREE.Vector3(0.5, 0.5, 0.5), 0.1);
                     }
                 });
                 selectedIndex = bestIdx;
@@ -1013,7 +1125,12 @@
                     }
                 });
             }
-            renderer.render(scene, camera);
+            // Render với post-processing (Bloom effect)
+            if (composer) {
+                composer.render();
+            } else {
+                renderer.render(scene, camera);
+            }
         }
 
         function startSystem() {
@@ -1074,7 +1191,15 @@
         }
 
         window.addEventListener('resize', () => {
-            if (camera) { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+            if (camera) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                // Resize composer cho post-processing
+                if (composer) {
+                    composer.setSize(window.innerWidth, window.innerHeight);
+                }
+            }
         });
     </script>
 </body>
