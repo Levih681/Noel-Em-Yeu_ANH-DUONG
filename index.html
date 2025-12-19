@@ -151,6 +151,7 @@
         let groupGold, groupRed, groupGift; 
         let photoMeshes = [];    
         let photoGallery = null; // Nhóm chứa tất cả ảnh trong thư viện 3D
+        let photoDisplayMesh = null; // Mesh để hiển thị ảnh lớn khi pinch
         let titleMesh, starMesh, loveMesh;
         
         let state = 'TREE'; 
@@ -299,7 +300,7 @@
             
             photoGallery = new THREE.Group();
             const photoCount = photoTextures.length;
-            const sphereRadius = 80; // Bán kính hình cầu
+            const sphereRadius = 45; // Bán kính hình cầu nhỏ hơn để tập trung ở giữa
             
             // Sắp xếp ảnh thành hình cầu sử dụng tọa độ cầu (Spherical coordinates)
             for(let i = 0; i < photoCount; i++) {
@@ -329,15 +330,16 @@
                 border.position.z = -0.1;
                 mesh.add(border);
                 
-                // Đặt vị trí trên hình cầu
+                // Đặt vị trí trên hình cầu - tập trung ở giữa hơn
                 mesh.position.set(
                     x * sphereRadius,
-                    y * sphereRadius * 0.6, // Làm phẳng một chút theo chiều Y
+                    y * sphereRadius * 0.5, // Làm phẳng hơn để tập trung ở giữa
                     z * sphereRadius
                 );
                 
-                // Lưu vị trí ban đầu để có thể quay về sau
+                // Lưu vị trí ban đầu và index để có thể tìm ảnh gần nhất
                 mesh.userData.originalPosition = mesh.position.clone();
+                mesh.userData.index = i;
                 
                 photoGallery.add(mesh);
             }
@@ -492,13 +494,15 @@
                 starMesh.rotation.z -= 0.02; 
                 starMesh.material.opacity = 0.7 + 0.3*Math.sin(time*5);
                 photoMeshes.forEach(m => { m.scale.lerp(new THREE.Vector3(0,0,0), 0.1); m.visible = false; });
-                // Ẩn thư viện ảnh khi ở trạng thái TREE
+                // Ẩn thư viện ảnh và mesh hiển thị khi ở trạng thái TREE
                 if (photoGallery) photoGallery.visible = false;
+                if (photoDisplayMesh) photoDisplayMesh.visible = false;
 
             } else if (state === 'HEART') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = true;
                 photoMeshes.forEach(m => { m.visible = false; });
                 if (photoGallery) photoGallery.visible = false;
+                if (photoDisplayMesh) photoDisplayMesh.visible = false;
                 const s = 1 + Math.abs(Math.sin(time*3))*0.1;
                 loveMesh.scale.set(s,s,1);
 
@@ -519,14 +523,34 @@
                     // Áp dụng góc xoay vào nhóm thư viện ảnh (xoay quanh trục Y)
                     photoGallery.rotation.y = currentGalleryRotationY;
                     
-                    // Đảm bảo tất cả ảnh hướng về camera
+                    // Tìm ảnh gần camera nhất để highlight
+                    let closestMesh = null;
+                    let closestDistance = Infinity;
+                    const cameraPos = camera.position;
+                    
                     photoGallery.children.forEach(mesh => {
                         // Tính vị trí của mesh trong world space sau khi nhóm đã xoay
                         const worldPos = new THREE.Vector3();
                         mesh.getWorldPosition(worldPos);
+                        
+                        // Tính khoảng cách đến camera
+                        const distance = cameraPos.distanceTo(worldPos);
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestMesh = mesh;
+                        }
+                        
                         // Hướng mesh về camera
                         mesh.lookAt(camera.position);
+                        
+                        // Reset scale về bình thường trong EXPLODE state
+                        mesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
                     });
+                    
+                    // Cập nhật selectedIndex dựa trên ảnh gần nhất
+                    if (closestMesh && closestMesh.userData.index !== undefined) {
+                        selectedIndex = closestMesh.userData.index;
+                    }
                 }
                 
                 // Giữ logic cũ cho photoMeshes (ẩn chúng)
@@ -534,12 +558,51 @@
 
             } else if (state === 'PHOTO') {
                 loveMesh.visible = false;
-                if (photoGallery) photoGallery.visible = false;
+                
+                // Ẩn thư viện ảnh
+                if (photoGallery) {
+                    photoGallery.visible = false;
+                }
+                
+                // Tạo hoặc cập nhật mesh hiển thị ảnh lớn
+                if (selectedIndex >= 0 && selectedIndex < photoTextures.length) {
+                    if (!photoDisplayMesh) {
+                        // Tạo mesh mới để hiển thị ảnh lớn
+                        const geo = new THREE.PlaneGeometry(20, 20);
+                        const mat = new THREE.MeshBasicMaterial({ 
+                            map: photoTextures[selectedIndex], 
+                            side: THREE.DoubleSide,
+                            transparent: true
+                        });
+                        photoDisplayMesh = new THREE.Mesh(geo, mat);
+                        scene.add(photoDisplayMesh);
+                    } else {
+                        // Cập nhật texture nếu selectedIndex thay đổi
+                        if (photoDisplayMesh.material.map !== photoTextures[selectedIndex]) {
+                            photoDisplayMesh.material.map = photoTextures[selectedIndex];
+                            photoDisplayMesh.material.needsUpdate = true;
+                        }
+                    }
+                    
+                    // Hiển thị và phóng to ảnh
+                    photoDisplayMesh.visible = true;
+                    photoDisplayMesh.position.lerp(new THREE.Vector3(0, 0, 60), 0.1);
+                    photoDisplayMesh.scale.lerp(new THREE.Vector3(5, 5, 5), 0.1);
+                    photoDisplayMesh.lookAt(camera.position);
+                } else {
+                    if (photoDisplayMesh) {
+                        photoDisplayMesh.visible = false;
+                    }
+                }
+                
+                // Giữ logic cũ cho photoMeshes (fallback)
                 photoMeshes.forEach((mesh, i) => {
                     if (i === selectedIndex) {
+                        mesh.visible = true;
                         mesh.position.lerp(new THREE.Vector3(0, 0, 60), 0.1);
                         mesh.scale.lerp(new THREE.Vector3(5, 5, 5), 0.1);
-                        mesh.lookAt(camera.position); mesh.rotation.z = 0;
+                        mesh.lookAt(camera.position); 
+                        mesh.rotation.z = 0;
                     } else {
                         mesh.scale.lerp(new THREE.Vector3(0,0,0), 0.1);
                     }
