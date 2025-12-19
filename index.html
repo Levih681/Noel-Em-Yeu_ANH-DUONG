@@ -151,6 +151,8 @@
         let state = 'TREE'; 
         let selectedIndex = 0;
         let handX = 0.5;
+        let targetTreeRotationY = 0; // Góc xoay mục tiêu của cây thông
+        let currentTreeRotationY = 0; // Góc xoay hiện tại của cây thông (để làm mượt)
 
         // ==========================================
         // 3. THREE.JS SYSTEM Vandiep
@@ -352,7 +354,8 @@
             const count = positions.length / 3;
             
             if (targetState === 'TREE') {
-                group.rotation.y += 0.003;
+                // Áp dụng góc xoay từ tay (đã được làm mượt)
+                group.rotation.y = handRotY;
                 
                 for(let i=0; i<count; i++) {
                     sizes[i] = baseSize;
@@ -410,7 +413,17 @@
             requestAnimationFrame(animate);
             const time = Date.now() * 0.001;
             const speed = 0.08;
-            const handRotY = (handX - 0.5) * 4.0;
+            
+            // Tính toán góc xoay mục tiêu từ tọa độ X của tay (0 đến 1 -> 0 đến 2*PI)
+            // Chỉ cập nhật khi phát hiện cử chỉ Fist (TREE)
+            if (state === 'TREE') {
+                targetTreeRotationY = handX * Math.PI * 2;
+            }
+            // Sử dụng Lerp với hệ số 0.1 để làm mượt góc xoay
+            const smoothFactor = 0.1;
+            currentTreeRotationY += (targetTreeRotationY - currentTreeRotationY) * smoothFactor;
+            
+            const handRotY = currentTreeRotationY;
 
             updateParticleGroup(groupGold, 'gold', state, speed, handRotY, time);
             updateParticleGroup(groupRed, 'red', state, speed, handRotY, time);
@@ -500,13 +513,14 @@
 
                 if(results.multiHandLandmarks.length > 0) {
                     const lm = results.multiHandLandmarks[0];
-                    handX = lm[9].x; 
+                    handX = lm[9].x; // Cập nhật tọa độ X của bàn tay
                     const tips = [8,12,16,20]; const wrist = lm[0];
                     let openDist = 0; tips.forEach(i => openDist += Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y));
                     const avgDist = openDist / 4;
                     const pinchDist = Math.hypot(lm[4].x-lm[8].x, lm[4].y-lm[8].y);
 
                     if (avgDist < 0.25) { 
+                        // Cử chỉ Fist (Nắm tay) -> TREE
                         state = 'TREE'; 
                     } else if (pinchDist < 0.05) {
                         state = 'PHOTO'; 
@@ -514,6 +528,8 @@
                         state = 'EXPLODE'; 
                     }
                 } else {
+                    // Không có tay -> giữ nguyên góc xoay, không reset
+                    // Không cập nhật targetTreeRotationY, chỉ giữ nguyên giá trị hiện tại
                     state = 'TREE'; 
                 }
             });
