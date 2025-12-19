@@ -70,7 +70,7 @@
     <div id="ui-layer">
         <!-- Vandiep -->
         <div class="guide">
-            🖐 <b>Open:</b> Explode &nbsp;|&nbsp; 🫶 <b>Heart:</b> Love &nbsp;|&nbsp; ✊ <b>Fist:</b> Tree
+            🖐 <b>Open:</b> Explode &nbsp;|&nbsp; 🫶 <b>Heart:</b> Love &nbsp;|&nbsp; ✊ <b>Fist:</b> Tree &nbsp;|&nbsp; ✌️ <b>Victory:</b> Change Color
         </div>
         <button id="btnStart" onclick="startSystem()">START MAGIC</button>
     </div>
@@ -151,9 +151,37 @@
         let state = 'TREE'; 
         let selectedIndex = 0;
         let handX = 0.5;
+        
+        // Color transition variables for smooth color change
+        let colorTransition = {
+            active: false,
+            progress: 0,
+            speed: 0.05,
+            targetColors: { gold: null, red: null, gift: null }
+        };
+        let lastVictoryGesture = false; // Track previous Victory gesture state
 
         // ==========================================
-        // 3. THREE.JS SYSTEM Vandiep
+        // 3. COLOR CHANGE FUNCTION Vandiep
+        // ==========================================
+        function changeTreeColorRandom() {
+            // Generate random colors for each particle group
+            const randomColor = () => {
+                const hue = Math.random() * 360;
+                const saturation = 0.7 + Math.random() * 0.3; // 0.7-1.0
+                const lightness = 0.5 + Math.random() * 0.3; // 0.5-0.8
+                return new THREE.Color().setHSL(hue / 360, saturation, lightness);
+            };
+            
+            colorTransition.targetColors.gold = randomColor();
+            colorTransition.targetColors.red = randomColor();
+            colorTransition.targetColors.gift = randomColor();
+            colorTransition.active = true;
+            colorTransition.progress = 0;
+        }
+        
+        // ==========================================
+        // 4. THREE.JS SYSTEM Vandiep
         // ==========================================
         function init3D() {
             const container = document.getElementById('canvas-container');
@@ -336,8 +364,26 @@
             const sizes = group.geometry.attributes.size.array;
             const colors = group.geometry.attributes.color.array;
             const phases = group.geometry.userData.phases;
-            const baseColor = group.geometry.userData.baseColor;
+            let baseColor = group.geometry.userData.baseColor;
             const baseSize = group.geometry.userData.baseSize;
+            
+            // Handle smooth color transition
+            if (colorTransition.active && colorTransition.targetColors[type]) {
+                // Continue transition progress regardless of state
+                colorTransition.progress += colorTransition.speed;
+                if (colorTransition.progress >= 1.0) {
+                    colorTransition.progress = 1.0;
+                    colorTransition.active = false;
+                }
+                
+                // Only apply color change when in TREE state
+                if (targetState === 'TREE') {
+                    // Lerp between current baseColor and target color
+                    const targetColor = colorTransition.targetColors[type];
+                    baseColor = baseColor.clone().lerp(targetColor, colorTransition.progress);
+                    group.geometry.userData.baseColor = baseColor;
+                }
+            }
             
             const targetKey = (targetState === 'TREE') ? 'tree' : (targetState === 'HEART' ? 'heart' : 'explode');
             const targets = group.geometry.userData[(targetState === 'PHOTO') ? 'explode' : targetKey];
@@ -501,7 +547,38 @@
                 if(results.multiHandLandmarks.length > 0) {
                     const lm = results.multiHandLandmarks[0];
                     handX = lm[9].x; 
-                    const tips = [8,12,16,20]; const wrist = lm[0];
+                    
+                    // --- Victory Gesture Detection (Index + Middle up, others down) ---
+                    const indexTip = lm[8];   // Index finger tip
+                    const middleTip = lm[12]; // Middle finger tip
+                    const ringTip = lm[16];   // Ring finger tip
+                    const pinkyTip = lm[20];  // Pinky finger tip
+                    const wrist = lm[0];      // Wrist
+                    
+                    // Check if index and middle fingers are extended (up)
+                    const indexExtended = indexTip.y < lm[6].y && indexTip.y < lm[5].y; // Tip above PIP and MCP
+                    const middleExtended = middleTip.y < lm[10].y && middleTip.y < lm[9].y;
+                    
+                    // Check if ring and pinky fingers are closed (down)
+                    const ringClosed = ringTip.y > lm[14].y; // Tip below PIP
+                    const pinkyClosed = pinkyTip.y > lm[18].y;
+                    
+                    // Check if thumb is closed (optional, for better detection)
+                    const thumbClosed = lm[4].x < lm[3].x || Math.abs(lm[4].y - lm[3].y) < 0.05;
+                    
+                    // Victory gesture: Index and Middle up, Ring and Pinky down
+                    const isVictory = indexExtended && middleExtended && ringClosed && pinkyClosed;
+                    
+                    // Only trigger when gesture is first detected (not while holding) and state is TREE
+                    if (isVictory && !lastVictoryGesture && state === 'TREE') {
+                        // Only trigger if not already transitioning or transition is almost complete
+                        if (!colorTransition.active || colorTransition.progress > 0.9) {
+                            changeTreeColorRandom();
+                        }
+                    }
+                    lastVictoryGesture = isVictory;
+                    
+                    const tips = [8,12,16,20]; 
                     let openDist = 0; tips.forEach(i => openDist += Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y));
                     const avgDist = openDist / 4;
                     const pinchDist = Math.hypot(lm[4].x-lm[8].x, lm[4].y-lm[8].y);
