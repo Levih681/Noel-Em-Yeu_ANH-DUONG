@@ -1,11 +1,10 @@
-<!-- xin chào người lạ, mình là anhduc.onlien | mình có tìm được file code noel này và fix lại, mình xin phép share mọi người ạ! -->
 <!DOCTYPE html>
 <html lang="VN">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NOEL_V2</title>
+    <title>Magic Christmas - Final Auto Gallery</title>
     <style>
         body {
             margin: 0;
@@ -37,13 +36,16 @@
             align-items: center;
             padding-top: 40px;
             box-sizing: border-box;
-            /* Remove transition here as we don't hide the whole layer anymore */
         }
 
-        /* When hidden class is applied to specific elements */
-        .ui-hidden {
-            opacity: 0;
-            pointer-events: none !important;
+        /* Guide text similar to v1.1 but styled for v2 */
+        .guide-text {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 11px;
+            letter-spacing: 2px;
+            margin-top: 10px;
+            text-transform: uppercase;
+            text-shadow: 0 2px 4px black;
         }
 
         /* Loading */
@@ -90,10 +92,10 @@
             }
         }
 
-        /* Typography - Centerpiece */
+        /* Typography */
         h1 {
             color: #fceea7;
-            font-size: 56px;
+            font-size: 40px;
             margin: 0;
             font-weight: 400;
             letter-spacing: 6px;
@@ -103,62 +105,19 @@
             -webkit-text-fill-color: transparent;
             font-family: 'Cinzel', 'Times New Roman', serif;
             opacity: 0.9;
-            transition: opacity 0.5s ease;
-            /* Ensure smooth transitions if needed */
-        }
-
-        /* Upload Button - Restored & Elegant */
-        .upload-wrapper {
-            margin-top: 20px;
-            pointer-events: auto;
-            text-align: center;
-            transition: opacity 0.5s ease;
-            /* Add transition for smooth hiding */
-        }
-
-        .upload-btn {
-            background: rgba(20, 20, 20, 0.6);
-            border: 1px solid rgba(212, 175, 55, 0.4);
-            color: #d4af37;
-            padding: 10px 25px;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 3px;
-            font-size: 10px;
-            transition: all 0.4s;
-            display: inline-block;
-            backdrop-filter: blur(5px);
-        }
-
-        .upload-btn:hover {
-            background: #d4af37;
-            color: #000;
-            box-shadow: 0 0 20px rgba(212, 175, 55, 0.5);
-        }
-
-        .hint-text {
-            color: rgba(212, 175, 55, 0.5);
-            font-size: 9px;
-            margin-top: 8px;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-        }
-
-        #file-input {
-            display: none;
         }
 
         /* Webcam feedback */
         #webcam-wrapper {
             position: absolute;
-            bottom: 40px;
-            right: 40px;
+            bottom: 20px;
+            right: 20px;
             width: 120px;
             height: 90px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             overflow: hidden;
             opacity: 0;
-            /* Hidden by default but functional */
+            /* Hidden but functional */
             pointer-events: none;
         }
     </style>
@@ -182,24 +141,16 @@
 
     <div id="loader">
         <div class="spinner"></div>
-        <div class="loader-text">Loading Holiday Magic</div>
+        <div class="loader-text">Loading Memories...</div>
     </div>
 
     <div id="canvas-container"></div>
 
     <div id="ui-layer">
-        <h1></h1>
-
-        <div class="upload-wrapper">
-            <label class="upload-btn">
-                Thêm ảnh
-                <input type="file" id="file-input" multiple accept="image/*">
-            </label>
-            <div class="hint-text">Nhấn phím 'H' để ẩn các nút điều khiển</div>
-        </div>
+        <h1>MERRY CHRISTMAS</h1>
+        <div class="guide-text">🖐 Open: Scatter | 🫶 Heart: Focus | ✊ Fist: Tree</div>
     </div>
 
-    <!-- Webcam hidden structure -->
     <div id="webcam-wrapper">
         <video id="webcam" autoplay playsinline style="display:none;"></video>
         <canvas id="webcam-preview"></canvas>
@@ -213,6 +164,17 @@
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
         import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
         import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+
+        // --- 1. DANH SÁCH ẢNH TỰ ĐỘNG (Lấy từ ver 1.1) ---
+        // Lưu ý: Đảm bảo bạn có thư mục 'images' chứa các ảnh này
+        const PHOTO_FILES = [
+            './images/image1.jpeg',
+            './images/image2.jpeg',
+            './images/image3.jpeg',
+            './images/image4.jpeg',
+            './images/image5.jpeg'
+            // Thêm ảnh khác vào đây nếu muốn: './images/image6.jpeg', ...
+        ];
 
         // --- CONFIGURATION ---
         const CONFIG = {
@@ -256,6 +218,10 @@
             createTextures();
             createParticles();
             createDust();
+
+            // Tải ảnh tự động thay vì đợi người dùng upload
+            loadPredefinedPhotos();
+
             setupPostProcessing();
             setupEvents();
             await initMediaPipe();
@@ -343,6 +309,7 @@
             caneTexture.wrapS = THREE.RepeatWrapping;
             caneTexture.wrapT = THREE.RepeatWrapping;
             caneTexture.repeat.set(3, 3);
+            caneTexture.colorSpace = THREE.SRGBColorSpace;
         }
 
         class Particle {
@@ -356,7 +323,6 @@
                 this.baseScale = mesh.scale.x;
 
                 // Individual Spin Speed
-                // Photos spin slower to be readable
                 const speedMult = (type === 'PHOTO') ? 0.3 : 2.0;
 
                 this.spinSpeed = new THREE.Vector3(
@@ -410,13 +376,12 @@
                 const lerpSpeed = (mode === 'FOCUS' && this.mesh === focusTargetMesh) ? 5.0 : 2.0;
                 this.mesh.position.lerp(target, lerpSpeed * dt);
 
-                // Rotation Logic - CRITICAL: Ensure spin happens in Scatter
+                // Rotation Logic
                 if (mode === 'SCATTER') {
                     this.mesh.rotation.x += this.spinSpeed.x * dt;
                     this.mesh.rotation.y += this.spinSpeed.y * dt;
-                    this.mesh.rotation.z += this.spinSpeed.z * dt; // Added Z for more natural tumble
+                    this.mesh.rotation.z += this.spinSpeed.z * dt;
                 } else if (mode === 'TREE') {
-                    // Reset rotations slowly
                     this.mesh.rotation.x = THREE.MathUtils.lerp(this.mesh.rotation.x, 0, dt);
                     this.mesh.rotation.z = THREE.MathUtils.lerp(this.mesh.rotation.z, 0, dt);
                     this.mesh.rotation.y += 0.5 * dt;
@@ -432,7 +397,6 @@
                     s = this.baseScale * (0.8 + 0.4 * Math.sin(clock.elapsedTime * 4 + this.mesh.id));
                     if (mode === 'TREE') s = 0;
                 } else if (mode === 'SCATTER' && this.type === 'PHOTO') {
-                    // Large preview size in scatter
                     s = this.baseScale * 2.5;
                 } else if (mode === 'FOCUS') {
                     if (this.mesh === focusTargetMesh) s = 4.5;
@@ -528,11 +492,28 @@
                 particleSystem.push(new Particle(mesh, 'DUST', true));
             }
         }
+
+        // --- HÀM MỚI: TỰ ĐỘNG TẢI ẢNH TỪ MẢNG ---
+        function loadPredefinedPhotos() {
+            const loader = new THREE.TextureLoader();
+
+            PHOTO_FILES.forEach(filePath => {
+                loader.load(filePath, (texture) => {
+                    texture.colorSpace = THREE.SRGBColorSpace; // Quan trọng để màu đẹp
+                    addPhotoToScene(texture);
+                }, undefined, (err) => {
+                    console.error("Không tải được ảnh:", filePath, err);
+                });
+            });
+        }
+
         function addPhotoToScene(texture) {
+            // Khung ảnh vàng
             const frameGeo = new THREE.BoxGeometry(1.4, 1.4, 0.05);
             const frameMat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.champagneGold, metalness: 1.0, roughness: 0.1 });
             const frame = new THREE.Mesh(frameGeo, frameMat);
 
+            // Ảnh
             const photoGeo = new THREE.PlaneGeometry(1.2, 1.2);
             const photoMat = new THREE.MeshBasicMaterial({ map: texture });
             const photo = new THREE.Mesh(photoGeo, photoMat);
@@ -545,23 +526,11 @@
             const s = 0.8;
             group.scale.set(s, s, s);
 
+            // Random vị trí ban đầu (sẽ được Particle class sắp xếp lại ngay sau đó)
+            group.position.set(0, -100, 0);
+
             photoMeshGroup.add(group);
             particleSystem.push(new Particle(group, 'PHOTO', false));
-        }
-
-        function handleImageUpload(e) {
-            const files = e.target.files;
-            if (!files.length) return;
-            Array.from(files).forEach(f => {
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    new THREE.TextureLoader().load(ev.target.result, (t) => {
-                        t.colorSpace = THREE.SRGBColorSpace;
-                        addPhotoToScene(t);
-                    });
-                }
-                reader.readAsDataURL(f);
-            });
         }
 
         // --- MEDIAPIPE ---
@@ -616,16 +585,22 @@
                 tips.forEach(t => avgDist += Math.hypot(t.x - wrist.x, t.y - wrist.y));
                 avgDist /= 4;
 
+                // LOGIC CỬ CHỈ: 
+                // 1. Chụm tay (Pinch) -> Focus ảnh (Tim/Heart gesture)
                 if (pinchDist < 0.05) {
                     if (STATE.mode !== 'FOCUS') {
                         STATE.mode = 'FOCUS';
                         const photos = particleSystem.filter(p => p.type === 'PHOTO');
                         if (photos.length) STATE.focusTarget = photos[Math.floor(Math.random() * photos.length)].mesh;
                     }
-                } else if (avgDist < 0.25) {
+                }
+                // 2. Nắm tay (Fist) -> Cây thông (Tree)
+                else if (avgDist < 0.25) {
                     STATE.mode = 'TREE';
                     STATE.focusTarget = null;
-                } else if (avgDist > 0.4) {
+                }
+                // 3. Mở tay (Open) -> Bung ra (Scatter/Explode)
+                else if (avgDist > 0.4) {
                     STATE.mode = 'SCATTER';
                     STATE.focusTarget = null;
                 }
@@ -641,22 +616,13 @@
                 renderer.setSize(window.innerWidth, window.innerHeight);
                 composer.setSize(window.innerWidth, window.innerHeight);
             });
-            document.getElementById('file-input').addEventListener('change', handleImageUpload);
-
-            // Toggle UI logic - ONLY hide controls, keep title
-            window.addEventListener('keydown', (e) => {
-                if (e.key.toLowerCase() === 'h') {
-                    const controls = document.querySelector('.upload-wrapper');
-                    if (controls) controls.classList.toggle('ui-hidden');
-                }
-            });
         }
 
         function animate() {
             requestAnimationFrame(animate);
             const dt = clock.getDelta();
 
-            // Rotation Logic
+            // Rotation Logic based on hand
             if (STATE.mode === 'SCATTER' && STATE.hand.detected) {
                 const targetRotY = STATE.hand.x * Math.PI * 0.9;
                 const targetRotX = STATE.hand.y * Math.PI * 0.25;
