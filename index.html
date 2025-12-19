@@ -91,7 +91,11 @@
         bgMusic.loop = true; bgMusic.volume = 1.0;
 
         const loader = new THREE.TextureLoader();
-        const photoFiles = ['./images/image1.jpeg', './images/image2.jpeg', './images/image3.jpeg', './images/image4.jpeg', './images/image5.jpeg'];
+        // Tải tất cả ảnh từ thư mục images/ (image1.jpeg đến image6.jpeg)
+        const photoFiles = [];
+        for(let i = 1; i <= 6; i++) {
+            photoFiles.push(`./images/image${i}.jpeg`);
+        }
         const photoTextures = [];
         photoFiles.forEach((f, i) => photoTextures[i] = loader.load(f));
 
@@ -146,11 +150,14 @@
         let scene, camera, renderer;
         let groupGold, groupRed, groupGift; 
         let photoMeshes = [];    
+        let photoGallery = null; // Nhóm chứa tất cả ảnh trong thư viện 3D
         let titleMesh, starMesh, loveMesh;
         
         let state = 'TREE'; 
         let selectedIndex = 0;
         let handX = 0.5;
+        let targetGalleryRotationY = 0; // Góc xoay mục tiêu của thư viện ảnh
+        let currentGalleryRotationY = 0; // Góc xoay hiện tại (để làm mượt)
 
         // ==========================================
         // 3. THREE.JS SYSTEM Vandiep
@@ -173,6 +180,7 @@
             groupGift = createParticleSystem('gift', CONFIG.giftCount, 3.0); 
 
             createPhotos();
+            createSphericalPhotoGallery(); // Tạo thư viện ảnh 3D hình cầu
             createDecorations();
             animate();
         }
@@ -270,6 +278,7 @@
             const borderGeo = new THREE.PlaneGeometry(9, 9); 
             const borderMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 }); 
 
+            // Tạo ảnh cũ cho PHOTO state (giữ lại để tương thích)
             for(let i=0; i<5; i++) {
                 const mat = new THREE.MeshBasicMaterial({ map: photoTextures[i], side: THREE.DoubleSide });
                 const mesh = new THREE.Mesh(geo, mat);
@@ -280,6 +289,61 @@
                 scene.add(mesh);
                 photoMeshes.push(mesh);
             }
+        }
+
+        // Tạo thư viện ảnh 3D hình cầu
+        function createSphericalPhotoGallery() {
+            if (photoGallery) {
+                scene.remove(photoGallery);
+            }
+            
+            photoGallery = new THREE.Group();
+            const photoCount = photoTextures.length;
+            const sphereRadius = 80; // Bán kính hình cầu
+            
+            // Sắp xếp ảnh thành hình cầu sử dụng tọa độ cầu (Spherical coordinates)
+            for(let i = 0; i < photoCount; i++) {
+                // Phân bố đều trên hình cầu sử dụng Fibonacci sphere hoặc golden angle
+                const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // Golden angle
+                const theta = goldenAngle * i; // Góc azimuth
+                const y = 1 - (i / (photoCount - 1)) * 2; // Từ -1 đến 1
+                const radiusAtY = Math.sqrt(1 - y * y); // Bán kính tại độ cao y
+                
+                const x = Math.cos(theta) * radiusAtY;
+                const z = Math.sin(theta) * radiusAtY;
+                
+                // Tạo mesh cho ảnh
+                const geo = new THREE.PlaneGeometry(12, 12);
+                const borderGeo = new THREE.PlaneGeometry(13, 13);
+                const borderMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 });
+                
+                const mat = new THREE.MeshBasicMaterial({ 
+                    map: photoTextures[i], 
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.9
+                });
+                
+                const mesh = new THREE.Mesh(geo, mat);
+                const border = new THREE.Mesh(borderGeo, borderMat);
+                border.position.z = -0.1;
+                mesh.add(border);
+                
+                // Đặt vị trí trên hình cầu
+                mesh.position.set(
+                    x * sphereRadius,
+                    y * sphereRadius * 0.6, // Làm phẳng một chút theo chiều Y
+                    z * sphereRadius
+                );
+                
+                // Lưu vị trí ban đầu để có thể quay về sau
+                mesh.userData.originalPosition = mesh.position.clone();
+                
+                photoGallery.add(mesh);
+            }
+            
+            photoGallery.visible = false;
+            scene.add(photoGallery);
         }
 
         function createDecorations() {
@@ -428,38 +492,49 @@
                 starMesh.rotation.z -= 0.02; 
                 starMesh.material.opacity = 0.7 + 0.3*Math.sin(time*5);
                 photoMeshes.forEach(m => { m.scale.lerp(new THREE.Vector3(0,0,0), 0.1); m.visible = false; });
+                // Ẩn thư viện ảnh khi ở trạng thái TREE
+                if (photoGallery) photoGallery.visible = false;
 
             } else if (state === 'HEART') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = true;
                 photoMeshes.forEach(m => { m.visible = false; });
+                if (photoGallery) photoGallery.visible = false;
                 const s = 1 + Math.abs(Math.sin(time*3))*0.1;
                 loveMesh.scale.set(s,s,1);
 
             } else if (state === 'EXPLODE') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
-                const baseAngle = groupGold.rotation.y; 
-                const angleStep = (Math.PI * 2) / 5;
-                let bestIdx = 0; let maxZ = -999;
-                photoMeshes.forEach((mesh, i) => {
-                    mesh.visible = true;
-                    const angle = baseAngle + i * angleStep;
-                    const x = Math.sin(angle) * CONFIG.photoOrbitRadius;
-                    const z = Math.cos(angle) * CONFIG.photoOrbitRadius;
-                    const y = Math.sin(time + i) * 3; 
-                    mesh.position.lerp(new THREE.Vector3(x, y, z), 0.1);
-                    mesh.lookAt(camera.position);
-                    if (z > maxZ) { maxZ = z; bestIdx = i; }
-                    if (z > 5) { 
-                        const ds = 1.0 + (z/CONFIG.photoOrbitRadius)*0.8; 
-                        mesh.scale.lerp(new THREE.Vector3(ds, ds, ds), 0.1);
-                    } else {
-                        mesh.scale.lerp(new THREE.Vector3(0.6, 0.6, 0.6), 0.1);
-                    }
-                });
-                selectedIndex = bestIdx;
+                
+                // Hiển thị thư viện ảnh 3D hình cầu
+                if (photoGallery) {
+                    photoGallery.visible = true;
+                    
+                    // Tính toán góc xoay mục tiêu từ tọa độ X của tay (0 đến 1 -> 0 đến 2*PI)
+                    targetGalleryRotationY = handX * Math.PI * 2;
+                    
+                    // Sử dụng Lerp với hệ số 0.05 để làm mượt góc xoay
+                    const smoothFactor = 0.05;
+                    currentGalleryRotationY += (targetGalleryRotationY - currentGalleryRotationY) * smoothFactor;
+                    
+                    // Áp dụng góc xoay vào nhóm thư viện ảnh (xoay quanh trục Y)
+                    photoGallery.rotation.y = currentGalleryRotationY;
+                    
+                    // Đảm bảo tất cả ảnh hướng về camera
+                    photoGallery.children.forEach(mesh => {
+                        // Tính vị trí của mesh trong world space sau khi nhóm đã xoay
+                        const worldPos = new THREE.Vector3();
+                        mesh.getWorldPosition(worldPos);
+                        // Hướng mesh về camera
+                        mesh.lookAt(camera.position);
+                    });
+                }
+                
+                // Giữ logic cũ cho photoMeshes (ẩn chúng)
+                photoMeshes.forEach(m => { m.visible = false; });
 
             } else if (state === 'PHOTO') {
                 loveMesh.visible = false;
+                if (photoGallery) photoGallery.visible = false;
                 photoMeshes.forEach((mesh, i) => {
                     if (i === selectedIndex) {
                         mesh.position.lerp(new THREE.Vector3(0, 0, 60), 0.1);
